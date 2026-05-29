@@ -73,6 +73,75 @@ export function extractProbeText(payload: unknown): string {
 	return "";
 }
 
+type ExpectedProvider = "openai" | "anthropic" | "gemini";
+
+function extractAnthropicProbeText(payload: Record<string, unknown>): string {
+	const content = payload.content;
+	if (typeof content === "string") {
+		return content.trim();
+	}
+	if (!Array.isArray(content)) {
+		return "";
+	}
+	for (const item of content) {
+		if (!item || typeof item !== "object") {
+			continue;
+		}
+		const record = item as Record<string, unknown>;
+		if (
+			(record.type === undefined || record.type === "text") &&
+			typeof record.text === "string" &&
+			record.text.trim().length > 0
+		) {
+			return record.text.trim();
+		}
+	}
+	return "";
+}
+
+function extractGeminiProbeText(payload: Record<string, unknown>): string {
+	const candidates = payload.candidates;
+	if (!Array.isArray(candidates) || candidates.length === 0) {
+		return "";
+	}
+	for (const candidate of candidates) {
+		if (!candidate || typeof candidate !== "object") {
+			continue;
+		}
+		const content = (candidate as Record<string, unknown>).content;
+		if (!content || typeof content !== "object") {
+			continue;
+		}
+		const parts = (content as Record<string, unknown>).parts;
+		if (!Array.isArray(parts)) {
+			continue;
+		}
+		for (const part of parts) {
+			if (!part || typeof part !== "object") {
+				continue;
+			}
+			const text = (part as Record<string, unknown>).text;
+			if (typeof text === "string" && text.trim().length > 0) {
+				return text.trim();
+			}
+		}
+	}
+	return "";
+}
+
+function extractExpectedProviderProbeText(
+	payload: Record<string, unknown>,
+	provider: ExpectedProvider,
+): string {
+	if (provider === "anthropic") {
+		return extractAnthropicProbeText(payload);
+	}
+	if (provider === "gemini") {
+		return extractGeminiProbeText(payload);
+	}
+	return extractProbeText(payload);
+}
+
 export type SuccessfulResponseInspection = {
 	ok: boolean;
 	code: string;
@@ -83,10 +152,12 @@ export type SuccessfulResponseInspection = {
 export async function inspectSuccessfulResponse(
 	response: Response,
 	options: {
+		expectedProvider?: ExpectedProvider;
 		requireOutputText?: boolean;
 	} = {},
 ): Promise<SuccessfulResponseInspection> {
 	const requireOutputText = options.requireOutputText === true;
+	const expectedProvider = options.expectedProvider;
 	const contentType = (
 		response.headers.get("content-type") ?? ""
 	).toLowerCase();
@@ -115,13 +186,26 @@ export async function inspectSuccessfulResponse(
 					outputText: null,
 				};
 			}
-			const outputText = normalizeMessage(extractProbeText(payload));
+			const outputText = normalizeMessage(
+				expectedProvider
+					? extractExpectedProviderProbeText(payload, expectedProvider)
+					: extractProbeText(payload),
+			);
 			if (requireOutputText && !outputText) {
 				return {
 					ok: false,
 					code: "completion_probe_missing_text",
 					message:
 						"completion_probe_missing_text: success payload contains no probe text",
+					outputText: null,
+				};
+			}
+			if (expectedProvider && !outputText) {
+				return {
+					ok: false,
+					code: "non_api_success_response",
+					message:
+						"non_api_success_response: success payload does not match expected provider response shape",
 					outputText: null,
 				};
 			}
@@ -132,6 +216,16 @@ export async function inspectSuccessfulResponse(
 				outputText,
 			};
 		}
+	}
+
+	if (expectedProvider) {
+		return {
+			ok: false,
+			code: "non_api_success_response",
+			message:
+				"non_api_success_response: success response is not JSON API payload",
+			outputText: null,
+		};
 	}
 
 	const text = normalizeMessage(

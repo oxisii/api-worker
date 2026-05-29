@@ -594,11 +594,6 @@ proxy.all("/*", tokenAuth, async (c) => {
 		tokenId?: string | null;
 		tokenName?: string | null;
 	}) => {
-		const normalized = options.usage ?? {
-			totalTokens: 0,
-			promptTokens: 0,
-			completionTokens: 0,
-		};
 		scheduleUsageEvent({
 			type: "usage",
 			payload: {
@@ -606,9 +601,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 				channelId: options.channelId,
 				model: downstreamModel,
 				requestPath: options.requestPath,
-				totalTokens: normalized.totalTokens,
-				promptTokens: normalized.promptTokens,
-				completionTokens: normalized.completionTokens,
+				totalTokens: options.usage?.totalTokens ?? null,
+				promptTokens: options.usage?.promptTokens ?? null,
+				completionTokens: options.usage?.completionTokens ?? null,
 				cost: 0,
 				latencyMs: options.latencyMs,
 				firstTokenLatencyMs: options.firstTokenLatencyMs,

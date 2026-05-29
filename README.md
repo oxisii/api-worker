@@ -338,6 +338,10 @@ bun run dev -- --remote-d1
 
 渠道编辑中的“请求入口”用于兼容非标准上游入口。默认留空时按站点类型的标准路径转发；填写如 `/codex` 并选择请求格式后，只有匹配的下游请求会走该入口，不匹配的请求会跳过该渠道。请求格式按站点类型展示，保存值使用明确协议名：`openai_chat`、`openai_responses`、`anthropic_messages`、`gemini_generate_content`。例如 `openai_responses` 只接 `/v1/responses`，`openai_chat` 只接 `/v1/chat/completions`。如果填写请求入口但请求格式保持“自动”，系统会先按当前下游请求类型使用该入口；当上游返回 HTTP 200 后，直接把该渠道请求格式固化为本次成功的明确格式。模型拉取仍默认使用模型列表接口，不受请求入口影响。
 
+站点验证分为模型发现和真实服务验证：模型发现只用于确认模型列表接口能返回可用模型；真实服务验证会发送最小聊天请求，并检查 HTTP 200 响应是否符合当前站点类型的 API JSON 结构且能抽取到真实输出。纯文本、HTML 落地页或无法解析出模型的响应不会被视为可用服务，也不会触发已禁用站点自动恢复。
+
+使用日志中缺失 usage 的请求会保留 token 字段为空；流式响应缺少 usage 时仍会按策略记录告警，但不会再把未知 token 数误写成 0。历史记录中 `usage_source=none` 且 token 为 0 的行会在管理台显示为 `-`。
+
 - 令牌
 - `GET /api/tokens`
 - `POST /api/tokens`

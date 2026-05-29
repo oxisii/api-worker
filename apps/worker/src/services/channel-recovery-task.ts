@@ -87,6 +87,7 @@ async function sendCompletionProbe(options: {
 		return false;
 	}
 	const inspection = await inspectSuccessfulResponse(response, {
+		expectedProvider: options.provider ?? "openai",
 		requireOutputText: true,
 	});
 	return inspection.ok;

@@ -88,6 +88,13 @@ async function readFailureDetail(response: Response): Promise<string | null> {
 	return normalizeSummaryDetail(text);
 }
 
+async function readSuccessfulDiscoveryDetail(
+	response: Response,
+): Promise<string | null> {
+	const detail = await readFailureDetail(response);
+	return detail ? normalizeSummaryDetail(detail) : "未解析到可用模型";
+}
+
 export async function performModelDiscovery(options: {
 	target: string;
 	headers: Headers;
@@ -126,11 +133,26 @@ export async function performModelDiscovery(options: {
 		};
 	}
 
-	const payload = (await response.json().catch(() => ({}))) as unknown;
+	const payload = (await response
+		.clone()
+		.json()
+		.catch(() => ({}))) as unknown;
+	const models = options.parseModels(payload);
+	if (models.length === 0) {
+		const detail = await readSuccessfulDiscoveryDetail(response);
+		return {
+			ok: false,
+			elapsed,
+			models: [],
+			httpStatus: response.status,
+			detail,
+			payload,
+		};
+	}
 	return {
 		ok: true,
 		elapsed,
-		models: options.parseModels(payload),
+		models,
 		payload,
 	};
 }

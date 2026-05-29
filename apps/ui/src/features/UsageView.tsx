@@ -29,6 +29,7 @@ import {
 	loadColumnPrefs,
 	persistColumnPrefs,
 } from "../core/utils";
+import { formatUsageTokens } from "./usage-format";
 
 type UsageViewProps = {
 	usage: UsageLog[];
@@ -49,9 +50,6 @@ type UsageViewProps = {
 };
 
 const pageSizeOptions = [50, 100, 200];
-
-const formatTokens = (value: number | null | undefined) =>
-	value === null || value === undefined ? "-" : value;
 
 const formatSeconds = (value: number | null | undefined) => {
 	if (value === null || value === undefined || Number.isNaN(value)) {
@@ -578,12 +576,12 @@ export const UsageView = ({
 												)}
 												{visibleColumnSet.has("prompt_tokens") && (
 													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
-														{formatTokens(log.prompt_tokens)}
+														{formatUsageTokens(log, log.prompt_tokens)}
 													</td>
 												)}
 												{visibleColumnSet.has("completion_tokens") && (
 													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
-														{formatTokens(log.completion_tokens)}
+														{formatUsageTokens(log, log.completion_tokens)}
 													</td>
 												)}
 												{visibleColumnSet.has("latency") && (

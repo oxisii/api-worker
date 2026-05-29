@@ -732,7 +732,9 @@ export async function verifySiteChannel(options: {
 			body: JSON.stringify(request.body),
 		});
 		const successInspection = response.ok
-			? await inspectSuccessfulResponse(response)
+			? await inspectSuccessfulResponse(response, {
+					expectedProvider: provider,
+				})
 			: null;
 		const detail = response.ok
 			? (successInspection?.message ?? "service_request_succeeded")
