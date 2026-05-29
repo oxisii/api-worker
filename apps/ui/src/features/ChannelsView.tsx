@@ -63,6 +63,7 @@ import {
 	getPagedChannelModelRows,
 	type ChannelModelStatusFilter,
 } from "./channel-models";
+import { getRequestEntryFormatOptions } from "./request-entry-formats";
 
 type ChannelsViewProps = {
 	models: ModelItem[];
@@ -502,6 +503,10 @@ export const ChannelsView = ({
 	const [modelPage, setModelPage] = useState(1);
 	const needsSystemToken = supportsSystemCredentials(siteForm.site_type);
 	const canScheduleCheckin = supportsSiteCheckin(siteForm.site_type);
+	const requestEntryFormatOptions = useMemo(
+		() => getRequestEntryFormatOptions(siteForm.site_type),
+		[siteForm.site_type],
+	);
 	const checkinTask = taskReports.checkin;
 	const verifyActiveTask = taskReports["verify-active"];
 	const verifyDisabledTask = taskReports["verify-disabled"];
@@ -2821,6 +2826,44 @@ export const ChannelsView = ({
 											})
 										}
 									/>
+								</div>
+								<div class="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+									<div>
+										<label
+											class="mb-1.5 block text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]"
+											for="request-entry-path"
+										>
+											请求入口
+										</label>
+										<Input
+											id="request-entry-path"
+											placeholder="留空使用默认端点，例如 /v1/responses"
+											value={siteForm.request_entry_path}
+											onInput={(event) =>
+												onFormChange({
+													request_entry_path: (
+														event.currentTarget as HTMLInputElement
+													).value,
+												})
+											}
+										/>
+									</div>
+									<div>
+										<label class="mb-1.5 block text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+											请求格式
+										</label>
+										<SingleSelect
+											class="w-full"
+											value={siteForm.request_entry_format}
+											options={requestEntryFormatOptions}
+											onChange={(next) =>
+												onFormChange({
+													request_entry_format:
+														next as SiteForm["request_entry_format"],
+												})
+											}
+										/>
+									</div>
 								</div>
 								<div class="mt-4 grid gap-4 md:grid-cols-2">
 									<div>

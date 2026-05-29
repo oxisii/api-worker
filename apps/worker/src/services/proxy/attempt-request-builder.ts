@@ -6,12 +6,15 @@ import {
 import { transformOpenAiStreamOptions } from "./usage-observe";
 import { getProviderAdapter } from "../providers";
 import { buildProviderChatRequest } from "../providers/chat-request";
+import type { EndpointType, ProviderType } from "../provider-transform";
 import {
 	buildProviderEmbeddingRequest,
 	buildProviderImageRequest,
 } from "../providers/requests";
 import { rewriteModelInRawJsonRequest } from "./request-body";
 import { shouldHandleOpenAiStreamOptions } from "./stream-options";
+import { applyCustomRequestEntry } from "./custom-request-entry";
+import type { RequestEntryFormat } from "../site-metadata";
 
 export type PreparedAttemptRequest = {
 	upstreamProvider: string;
@@ -27,6 +30,8 @@ export type PreparedAttemptRequest = {
 	streamOptionsHandled: boolean;
 	streamOptionsInjected: boolean;
 	strippedBodyText?: string;
+	requestEntryFormatToPersist?: RequestEntryFormat;
+	requestEntryPathToPersist?: string;
 };
 
 /**
@@ -41,8 +46,8 @@ export async function prepareAttemptRequest(options: {
 	targetPath: string;
 	effectiveRequestText: string;
 	parsedBody: Record<string, unknown> | null;
-	downstreamProvider: string;
-	endpointType: string;
+	downstreamProvider: ProviderType;
+	endpointType: EndpointType;
 	isStream: boolean;
 	shouldSkipHeavyBodyParsing: boolean;
 	querySuffix: string;
@@ -56,30 +61,50 @@ export async function prepareAttemptRequest(options: {
 	) => Promise<"supported" | "unsupported" | "unknown">;
 }): Promise<PreparedAttemptRequest | null> {
 	const metadata = options.attemptTarget.metadata;
-	const upstreamProvider = options.attemptTarget.upstreamProvider;
-	const providerAdapter = getProviderAdapter(upstreamProvider as any);
+	let upstreamProvider = options.attemptTarget.upstreamProvider;
 	const upstreamModel = options.attemptTarget.upstreamModel;
 	const recordModel = options.attemptTarget.recordModel;
 	const tokenSelection = options.attemptTarget.tokenSelection;
 
 	const baseUrl = resolveChannelBaseUrl(options.channel);
 	const apiKey = tokenSelection.token?.api_key ?? options.channel.api_key;
-	const headers = buildUpstreamHeaders(
-		new Headers(options.requestHeaders),
-		upstreamProvider as any,
-		String(apiKey),
-		metadata.header_overrides,
-	);
-	headers.delete("host");
-	headers.delete("content-length");
 
 	let upstreamRequestPath = options.targetPath;
 	let upstreamFallbackPath: string | undefined;
 	let upstreamBodyText = options.effectiveRequestText || undefined;
 	let absoluteUrl: string | undefined;
+	const customEntry = applyCustomRequestEntry({
+		entry: metadata.request_entry,
+		downstreamProvider: options.downstreamProvider,
+		endpointType: options.endpointType,
+	});
+
+	if (customEntry === null) {
+		return null;
+	}
+	if (customEntry) {
+		upstreamProvider = customEntry.upstreamProvider;
+		absoluteUrl = customEntry.absoluteUrl;
+		if (customEntry.path) {
+			upstreamRequestPath = customEntry.path;
+		}
+	}
+
+	const providerAdapter = getProviderAdapter(upstreamProvider);
+	const headers = buildUpstreamHeaders(
+		new Headers(options.requestHeaders),
+		upstreamProvider,
+		String(apiKey),
+		metadata.header_overrides,
+	);
+	headers.delete("host");
+	headers.delete("content-length");
 	const sameProvider = upstreamProvider === options.downstreamProvider;
 
-	if (options.endpointType === "passthrough") {
+	if (customEntry) {
+		// Custom request entries keep the downstream body as-is and only override
+		// the target path/provider selected by the explicit request format.
+	} else if (options.endpointType === "passthrough") {
 		if (!sameProvider) {
 			return null;
 		}
@@ -239,5 +264,7 @@ export async function prepareAttemptRequest(options: {
 		streamOptionsHandled: shouldHandleStreamOptions,
 		streamOptionsInjected,
 		strippedBodyText: strippedStreamOptionsBodyText,
+		requestEntryFormatToPersist: customEntry?.requestEntryFormatToPersist,
+		requestEntryPathToPersist: metadata.request_entry?.path ?? undefined,
 	};
 }

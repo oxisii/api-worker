@@ -110,6 +110,7 @@ import {
 	buildAttemptFailureResponse,
 	finalizeSelectedResponse,
 } from "../../../worker/src/services/proxy/response-finalizer";
+import { persistAutomaticRequestEntryFormat as persistAutomaticRequestEntryFormatToDb } from "../../../worker/src/services/proxy/request-entry-persistence";
 import {
 	getSuccessfulUsageWarning,
 	shouldValidateToolSchemasFromRequestText,
@@ -1541,6 +1542,24 @@ proxy.all("/*", tokenAuth, async (c) => {
 		saveStreamOptionsCapability,
 		resolveChannelAttemptTarget,
 		recordSelectedClientDisconnect,
+		persistAutomaticRequestEntryFormat: (options: {
+			channel: ChannelRecord;
+			path?: string | null;
+			format?:
+				| import("../../../worker/src/services/site-metadata").RequestEntryFormat
+				| null;
+		}) => {
+			scheduleDbWrite(
+				c,
+				persistAutomaticRequestEntryFormatToDb({
+					db,
+					kvHot: c.env.KV_HOT,
+					channel: options.channel,
+					path: options.path,
+					format: options.format,
+				}),
+			);
+		},
 	});
 	selectedResponse = attemptRun.selectedResponse;
 	selectedChannel = attemptRun.selectedChannel;

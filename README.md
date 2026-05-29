@@ -336,6 +336,8 @@ bun run dev -- --remote-d1
 
 有效模型 = 自动验证通过模型 + 手动加入正式模型 - 待加入模型 - 已排除模型；仅当渠道没有验证通过模型且没有手动状态配置时，才使用旧的渠道模型列表作为兼容兜底。
 
+渠道编辑中的“请求入口”用于兼容非标准上游入口。默认留空时按站点类型的标准路径转发；填写如 `/codex` 并选择请求格式后，只有匹配的下游请求会走该入口，不匹配的请求会跳过该渠道。请求格式按站点类型展示，保存值使用明确协议名：`openai_chat`、`openai_responses`、`anthropic_messages`、`gemini_generate_content`。例如 `openai_responses` 只接 `/v1/responses`，`openai_chat` 只接 `/v1/chat/completions`。如果填写请求入口但请求格式保持“自动”，系统会先按当前下游请求类型使用该入口；当上游返回 HTTP 200 后，直接把该渠道请求格式固化为本次成功的明确格式。模型拉取仍默认使用模型列表接口，不受请求入口影响。
+
 - 令牌
 - `GET /api/tokens`
 - `POST /api/tokens`

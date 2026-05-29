@@ -2,6 +2,7 @@ import { safeJsonParse } from "../utils/json";
 import {
 	type EndpointOverrides,
 	parseSiteMetadata,
+	type RequestEntry,
 	type SiteType,
 } from "./site-metadata";
 import { resolveUpstreamProvider } from "./upstreams";
@@ -11,6 +12,7 @@ export type ProviderType = "openai" | "anthropic" | "gemini";
 export type ChannelMetadata = {
 	site_type: SiteType;
 	endpoint_overrides: EndpointOverrides;
+	request_entry: RequestEntry;
 	model_mapping: Record<string, string>;
 	header_overrides: Record<string, string>;
 	query_overrides: Record<string, string>;
@@ -55,6 +57,7 @@ export function parseChannelMetadata(
 	return {
 		site_type: site.site_type,
 		endpoint_overrides: site.endpoint_overrides,
+		request_entry: site.request_entry,
 		model_mapping: normalizeMapping(base.model_mapping),
 		header_overrides: normalizeMapping(
 			base.header_override ?? base.header_overrides ?? base.headers,

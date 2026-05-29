@@ -49,4 +49,36 @@ describe("site metadata manual models", () => {
 		expect(metadata.manual_include_models).toEqual(["new"]);
 		expect(metadata.manual_exclude_models).toEqual(["bad-new"]);
 	});
+
+	it("解析并保存自定义请求入口", () => {
+		const updated = buildSiteMetadata(null, {
+			site_type: "openai",
+			request_entry: {
+				path: "/codex",
+				format: "openai_responses",
+			},
+		});
+		const metadata = parseSiteMetadata(updated);
+
+		expect(metadata.request_entry).toEqual({
+			path: "/codex",
+			format: "openai_responses",
+		});
+	});
+
+	it("保存路径但格式为空时保留自动请求入口", () => {
+		const updated = buildSiteMetadata(null, {
+			site_type: "openai",
+			request_entry: {
+				path: "/codex",
+				format: null,
+			},
+		});
+		const metadata = parseSiteMetadata(updated);
+
+		expect(metadata.request_entry).toEqual({
+			path: "/codex",
+			format: null,
+		});
+	});
 });

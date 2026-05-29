@@ -34,6 +34,8 @@ export const initialSiteForm: SiteForm = {
 	weight: 1,
 	status: "active",
 	site_type: "new-api",
+	request_entry_path: "",
+	request_entry_format: "",
 	checkin_url: "",
 	system_token: "",
 	system_userid: "",

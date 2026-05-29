@@ -80,6 +80,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		saveStreamOptionsCapability,
 		resolveChannelAttemptTarget,
 		recordSelectedClientDisconnect,
+		persistAutomaticRequestEntryFormat,
 	} = ctx;
 	let {
 		selectedResponse,
@@ -185,6 +186,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				streamUsage: streamUsageOptions,
 				streamOptionsInjected: preparedAttempt.streamOptionsInjected,
 				strippedBodyText: preparedAttempt.strippedBodyText,
+				requestEntryFormatToPersist:
+					preparedAttempt.requestEntryFormatToPersist,
+				requestEntryPathToPersist: preparedAttempt.requestEntryPathToPersist,
 			});
 			dispatchAttemptMeta.push({
 				channel,
@@ -197,6 +201,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				target: preparedAttempt.target,
 				fallbackTarget: preparedAttempt.fallbackTarget,
 				requestHeaders: new Headers(preparedAttempt.headers),
+				requestEntryFormatToPersist:
+					preparedAttempt.requestEntryFormatToPersist,
+				requestEntryPathToPersist: preparedAttempt.requestEntryPathToPersist,
 			});
 		}
 		if (dispatchAttempts.length > 0) {
@@ -586,6 +593,16 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 									dispatchStopRetry = true;
 								}
 							} else {
+								if (
+									response.status === 200 &&
+									meta.requestEntryFormatToPersist
+								) {
+									persistAutomaticRequestEntryFormat({
+										channel: meta.channel,
+										path: meta.requestEntryPathToPersist,
+										format: meta.requestEntryFormatToPersist,
+									});
+								}
 								recordAttemptLog({
 									attemptIndex: attemptNumber,
 									channelId: meta.channel.id,
@@ -1434,6 +1451,16 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 						startedAt: attemptStartedAt,
 						endedAt: new Date().toISOString(),
 					});
+					if (
+						response.status === 200 &&
+						preparedAttempt.requestEntryFormatToPersist
+					) {
+						persistAutomaticRequestEntryFormat({
+							channel,
+							path: preparedAttempt.requestEntryPathToPersist,
+							format: preparedAttempt.requestEntryFormatToPersist,
+						});
+					}
 					const selectedState = buildSelectedAttemptState({
 						channel,
 						upstreamProvider,

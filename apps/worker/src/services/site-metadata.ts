@@ -10,9 +10,21 @@ export type EndpointOverrides = {
 	embedding_url?: string | null;
 };
 
+export type RequestEntryFormat =
+	| "openai_chat"
+	| "openai_responses"
+	| "anthropic_messages"
+	| "gemini_generate_content";
+
+export type RequestEntry = {
+	path: string | null;
+	format: RequestEntryFormat | null;
+};
+
 export type SiteMetadata = {
 	site_type: SiteType;
 	endpoint_overrides: EndpointOverrides;
+	request_entry: RequestEntry;
 	manual_include_models: string[];
 	manual_pending_models: string[];
 	manual_exclude_models: string[];
@@ -29,6 +41,65 @@ const normalizeOverride = (value: unknown): string | null => {
 		return null;
 	}
 	return normalizeBaseUrl(trimmed);
+};
+
+const normalizeEntryPath = (value: unknown): string | null => {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+		return normalizeBaseUrl(trimmed);
+	}
+	const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+	return withLeadingSlash.replace(/\/+$/u, "") || "/";
+};
+
+const normalizeRequestEntryFormat = (
+	value: unknown,
+): RequestEntryFormat | null => {
+	const normalized = String(value ?? "")
+		.trim()
+		.toLowerCase();
+	if (
+		normalized === "openai_chat" ||
+		normalized === "chat" ||
+		normalized === "chat_completions"
+	) {
+		return "openai_chat";
+	}
+	if (normalized === "openai_responses" || normalized === "responses") {
+		return "openai_responses";
+	}
+	if (
+		normalized === "anthropic_messages" ||
+		normalized === "anthropic" ||
+		normalized === "messages"
+	) {
+		return "anthropic_messages";
+	}
+	if (
+		normalized === "gemini_generate_content" ||
+		normalized === "gemini" ||
+		normalized === "generate_content"
+	) {
+		return "gemini_generate_content";
+	}
+	return null;
+};
+
+const parseRequestEntry = (value: unknown): RequestEntry => {
+	const entry =
+		value && typeof value === "object" && !Array.isArray(value)
+			? (value as Record<string, unknown>)
+			: {};
+	return {
+		path: normalizeEntryPath(entry.path),
+		format: normalizeRequestEntryFormat(entry.format),
+	};
 };
 
 function normalizeModelList(value: unknown): string[] {
@@ -72,6 +143,7 @@ export function parseSiteMetadata(
 			image_url: normalizeOverride(overrides.image_url),
 			embedding_url: normalizeOverride(overrides.embedding_url),
 		},
+		request_entry: parseRequestEntry(parsed.request_entry),
 		manual_include_models: normalizeModelList(parsed.manual_include_models),
 		manual_pending_models: normalizeModelList(parsed.manual_pending_models),
 		manual_exclude_models: normalizeModelList(parsed.manual_exclude_models),
@@ -83,6 +155,7 @@ export function buildSiteMetadata(
 	updates: {
 		site_type?: SiteType;
 		endpoint_overrides?: EndpointOverrides | null;
+		request_entry?: Partial<RequestEntry> | null;
 		manual_include_models?: unknown;
 		manual_exclude_models?: unknown;
 	},
@@ -99,6 +172,14 @@ export function buildSiteMetadata(
 				updates.endpoint_overrides.embedding_url,
 			),
 		};
+	}
+	if (updates.request_entry !== undefined) {
+		const requestEntry = parseRequestEntry(updates.request_entry);
+		if (requestEntry.path) {
+			base.request_entry = requestEntry;
+		} else {
+			delete base.request_entry;
+		}
 	}
 	if (updates.manual_include_models !== undefined) {
 		const models = normalizeModelList(updates.manual_include_models);

@@ -25,6 +25,7 @@ import { invalidateSelectionHotCache } from "../services/hot-kv";
 import {
 	buildSiteMetadata,
 	parseSiteMetadata,
+	type RequestEntryFormat,
 } from "../services/site-metadata";
 import {
 	recoverDisabledChannelsViaWorker,
@@ -63,6 +64,8 @@ type SitePayload = {
 	weight?: number;
 	status?: string;
 	site_type?: SiteType;
+	request_entry_path?: string | null;
+	request_entry_format?: string | null;
 	manual_include_models?: unknown;
 	manual_exclude_models?: unknown;
 	checkin_url?: string | null;
@@ -111,6 +114,37 @@ const parseBoolean = (value: unknown, fallback = false): boolean => {
 		return value.toLowerCase() === "true";
 	}
 	return fallback;
+};
+
+const parseRequestEntryFormat = (value: unknown): RequestEntryFormat | null => {
+	const normalized = String(value ?? "")
+		.trim()
+		.toLowerCase();
+	if (
+		normalized === "openai_chat" ||
+		normalized === "chat" ||
+		normalized === "chat_completions"
+	) {
+		return "openai_chat";
+	}
+	if (normalized === "openai_responses" || normalized === "responses") {
+		return "openai_responses";
+	}
+	if (
+		normalized === "anthropic_messages" ||
+		normalized === "anthropic" ||
+		normalized === "messages"
+	) {
+		return "anthropic_messages";
+	}
+	if (
+		normalized === "gemini_generate_content" ||
+		normalized === "gemini" ||
+		normalized === "generate_content"
+	) {
+		return "gemini_generate_content";
+	}
+	return null;
 };
 
 const toCallTokenRows = (
@@ -190,6 +224,8 @@ const buildSiteRecord = (
 		last_checkin_message: channel.last_checkin_message ?? null,
 		last_checkin_at: channel.last_checkin_at ?? null,
 		verification: parseSiteVerificationSummary(channel.metadata_json),
+		request_entry_path: metadata.request_entry.path,
+		request_entry_format: metadata.request_entry.format,
 		manual_include_models: metadata.manual_include_models,
 		manual_pending_models: metadata.manual_pending_models,
 		manual_exclude_models: metadata.manual_exclude_models,
@@ -307,6 +343,10 @@ sites.post("/", async (c) => {
 	}
 	const metadataJson = buildSiteMetadata(null, {
 		site_type: siteType,
+		request_entry: {
+			path: body.request_entry_path ?? null,
+			format: parseRequestEntryFormat(body.request_entry_format),
+		},
 		manual_include_models: body.manual_include_models,
 		manual_exclude_models: body.manual_exclude_models,
 	});
@@ -376,6 +416,8 @@ sites.patch("/:id", async (c) => {
 	}
 	const shouldUpdateMetadata =
 		body.site_type !== undefined ||
+		body.request_entry_path !== undefined ||
+		body.request_entry_format !== undefined ||
 		body.manual_include_models !== undefined ||
 		body.manual_exclude_models !== undefined;
 	const metadataJson = shouldUpdateMetadata
@@ -384,6 +426,20 @@ sites.patch("/:id", async (c) => {
 					body.site_type !== undefined
 						? nextSiteType
 						: currentMetadata.site_type,
+				request_entry:
+					body.request_entry_path !== undefined ||
+					body.request_entry_format !== undefined
+						? {
+								path:
+									body.request_entry_path !== undefined
+										? body.request_entry_path
+										: currentMetadata.request_entry.path,
+								format:
+									body.request_entry_format !== undefined
+										? parseRequestEntryFormat(body.request_entry_format)
+										: currentMetadata.request_entry.format,
+							}
+						: undefined,
 				manual_include_models: body.manual_include_models,
 				manual_exclude_models: body.manual_exclude_models,
 			})

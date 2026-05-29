@@ -29,6 +29,8 @@ export type Site = {
 	weight: number;
 	status: string;
 	site_type: SiteType;
+	request_entry_path?: string | null;
+	request_entry_format?: RequestEntryFormat | null;
 	api_key?: string;
 	system_token?: string | null;
 	system_userid?: string | null;
@@ -419,12 +421,20 @@ export type SiteForm = {
 	weight: number;
 	status: string;
 	site_type: SiteType;
+	request_entry_path: string;
+	request_entry_format: RequestEntryFormat | "";
 	checkin_url: string;
 	system_token: string;
 	system_userid: string;
 	checkin_enabled: boolean;
 	call_tokens: SiteCallTokenForm[];
 };
+
+export type RequestEntryFormat =
+	| "openai_chat"
+	| "openai_responses"
+	| "anthropic_messages"
+	| "gemini_generate_content";
 
 export type SiteCallTokenForm = {
 	id?: string;

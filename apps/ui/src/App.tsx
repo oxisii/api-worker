@@ -85,6 +85,7 @@ import { ChannelsView } from "./features/ChannelsView";
 import { DashboardView } from "./features/DashboardView";
 import { LoginView } from "./features/LoginView";
 import { ModelsView } from "./features/ModelsView";
+import { isRequestEntryFormatAllowedForSiteType } from "./features/request-entry-formats";
 import { SettingsView } from "./features/SettingsView";
 import { TokensView } from "./features/TokensView";
 import { UsageView } from "./features/UsageView";
@@ -933,6 +934,16 @@ const App = () => {
 			const next = { ...prev, ...patch };
 			if (
 				patch.site_type &&
+				next.request_entry_format &&
+				!isRequestEntryFormatAllowedForSiteType(
+					patch.site_type,
+					next.request_entry_format,
+				)
+			) {
+				next.request_entry_format = "";
+			}
+			if (
+				patch.site_type &&
 				(!patch.base_url || patch.base_url.trim().length === 0) &&
 				!prev.base_url.trim()
 			) {
@@ -1189,6 +1200,15 @@ const App = () => {
 				weight: site.weight ?? 1,
 				status: site.status ?? "active",
 				site_type: site.site_type ?? "new-api",
+				request_entry_path: site.request_entry_path ?? "",
+				request_entry_format:
+					site.request_entry_format &&
+					isRequestEntryFormatAllowedForSiteType(
+						site.site_type ?? "new-api",
+						site.request_entry_format,
+					)
+						? site.request_entry_format
+						: "",
 				checkin_url: site.checkin_url ?? "",
 				system_token: site.system_token ?? "",
 				system_userid: site.system_userid ?? "",
@@ -1443,6 +1463,17 @@ const App = () => {
 				pushNotice("warning", "基础 URL 不能为空");
 				return;
 			}
+			if (
+				siteForm.request_entry_path.trim() &&
+				siteForm.request_entry_format &&
+				!isRequestEntryFormatAllowedForSiteType(
+					siteForm.site_type,
+					siteForm.request_entry_format,
+				)
+			) {
+				pushNotice("warning", "当前站点类型不支持所选请求格式");
+				return;
+			}
 			const callTokens = siteForm.call_tokens
 				.map((token, index) => ({
 					id: token.id,
@@ -1471,6 +1502,10 @@ const App = () => {
 					weight: Number(siteForm.weight),
 					status: siteForm.status,
 					site_type: siteForm.site_type,
+					request_entry_path: siteForm.request_entry_path.trim() || null,
+					request_entry_format: siteForm.request_entry_path.trim()
+						? siteForm.request_entry_format || null
+						: null,
 					system_token: siteForm.system_token.trim(),
 					system_userid: siteForm.system_userid.trim(),
 					checkin_url: siteForm.checkin_url.trim() || null,
