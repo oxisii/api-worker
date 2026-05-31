@@ -15,6 +15,7 @@ import {
 	parseUsageFromSse,
 	type StreamUsageOptions,
 } from "../../../worker/src/utils/usage";
+import { buildUsageHeaders } from "../../../worker/src/utils/usage-headers";
 import {
 	buildProxyErrorCodeSet,
 	resolveProxyErrorAction,
@@ -614,9 +615,7 @@ async function collectAttemptStreamMeta(
 		meta[ATTEMPT_STREAM_EVENTS_SEEN_HEADER] = String(eventsSeen);
 	}
 	if (usage) {
-		meta["x-usage-total-tokens"] = String(usage.totalTokens);
-		meta["x-usage-prompt-tokens"] = String(usage.promptTokens);
-		meta["x-usage-completion-tokens"] = String(usage.completionTokens);
+		Object.assign(meta, buildUsageHeaders(usage));
 	}
 	if (firstTokenLatencyMs !== null && Number.isFinite(firstTokenLatencyMs)) {
 		meta[ATTEMPT_STREAM_FIRST_TOKEN_LATENCY_HEADER] = String(

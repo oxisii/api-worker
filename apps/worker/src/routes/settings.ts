@@ -5,12 +5,14 @@ import {
 	shouldResetLastRun,
 } from "../services/checkin-scheduler";
 import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import { convertStoredModelPricesCurrency } from "../services/pricing/repo";
 import {
 	getChannelRefreshEnabled,
 	getChannelRefreshScheduleTime,
 	getChannelRecoveryProbeEnabled,
 	getChannelRecoveryProbeScheduleTime,
 	getCheckinScheduleTime,
+	getPricingSettings,
 	getProxyRuntimeSettings,
 	getRetentionDays,
 	getRuntimeProxyConfig,
@@ -23,6 +25,7 @@ import {
 	setChannelRecoveryProbeScheduleTime,
 	setAdminPasswordHash,
 	setCheckinScheduleTime,
+	setPricingSettings,
 	setProxyRuntimeSettings,
 	setRetentionDays,
 	setSessionTtlHours,
@@ -48,6 +51,7 @@ settings.get("/", async (c) => {
 		await getChannelRecoveryProbeScheduleTime(db);
 	const runtimeSettings = await getProxyRuntimeSettings(db);
 	const runtimeConfig = getRuntimeProxyConfig(c.env, runtimeSettings);
+	const pricingSettings = await getPricingSettings(db);
 
 	return c.json({
 		log_retention_days: retention,
@@ -70,6 +74,7 @@ settings.get("/", async (c) => {
 			runtimeSettings.channel_disable_error_code_minutes,
 		runtime_config: runtimeConfig,
 		runtime_settings: runtimeSettings,
+		pricing_settings: pricingSettings,
 	});
 });
 
@@ -87,6 +92,8 @@ settings.put("/", async (c) => {
 	let runtimeTouched = false;
 	let scheduleTouched = false;
 	let scheduleReset = false;
+	const pricingPatch: Parameters<typeof setPricingSettings>[1] = {};
+	let pricingTouched = false;
 
 	const runtimePatch: {
 		upstream_timeout_ms?: number;
@@ -738,8 +745,145 @@ settings.put("/", async (c) => {
 		scheduleReset = scheduleReset || shouldResetLastRun(currentTime, timeValue);
 	}
 
+	if (body.pricing_sync_enabled !== undefined) {
+		const raw = body.pricing_sync_enabled;
+		let enabled: boolean | null = null;
+		if (typeof raw === "boolean") {
+			enabled = raw;
+		} else if (typeof raw === "number") {
+			enabled = raw !== 0;
+		} else if (typeof raw === "string") {
+			const normalized = raw.trim().toLowerCase();
+			if (["1", "true", "yes", "on"].includes(normalized)) {
+				enabled = true;
+			} else if (["0", "false", "no", "off"].includes(normalized)) {
+				enabled = false;
+			}
+		}
+		if (enabled === null) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_sync_enabled",
+				"invalid_pricing_sync_enabled",
+			);
+		}
+		const currentSettings = await getPricingSettings(db);
+		pricingPatch.sync_enabled = enabled;
+		pricingTouched = true;
+		scheduleTouched = true;
+		scheduleReset = scheduleReset || (!currentSettings.sync_enabled && enabled);
+	}
+
+	if (body.pricing_sync_schedule_time !== undefined) {
+		const currentSettings = await getPricingSettings(db);
+		const timeValue = String(body.pricing_sync_schedule_time).trim();
+		if (!/^\d{2}:\d{2}$/.test(timeValue)) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_sync_schedule_time",
+				"invalid_pricing_sync_schedule_time",
+			);
+		}
+		const [hour, minute] = timeValue.split(":").map((value) => Number(value));
+		if (
+			Number.isNaN(hour) ||
+			Number.isNaN(minute) ||
+			hour < 0 ||
+			hour > 23 ||
+			minute < 0 ||
+			minute > 59
+		) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_sync_schedule_time",
+				"invalid_pricing_sync_schedule_time",
+			);
+		}
+		pricingPatch.sync_schedule_time = timeValue;
+		pricingTouched = true;
+		scheduleTouched = true;
+		scheduleReset =
+			scheduleReset ||
+			shouldResetLastRun(currentSettings.sync_schedule_time, timeValue);
+	}
+
+	if (body.pricing_sync_sources !== undefined) {
+		if (!Array.isArray(body.pricing_sync_sources)) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_sync_sources",
+				"invalid_pricing_sync_sources",
+			);
+		}
+		pricingPatch.sync_sources = body.pricing_sync_sources
+			.map((item: unknown) => String(item).trim().toLowerCase())
+			.filter((item: string) => item.length > 0);
+		pricingTouched = true;
+	}
+
+	if (body.pricing_default_markup !== undefined) {
+		const markup = Number(body.pricing_default_markup);
+		if (Number.isNaN(markup) || markup <= 0) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_default_markup",
+				"invalid_pricing_default_markup",
+			);
+		}
+		pricingPatch.default_markup = markup;
+		pricingTouched = true;
+	}
+
+	let pricingUsdCnyRateForConversion: number | null = null;
+	if (body.pricing_usd_cny_rate !== undefined) {
+		const rate = Number(body.pricing_usd_cny_rate);
+		if (Number.isNaN(rate) || rate <= 0) {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_usd_cny_rate",
+				"invalid_pricing_usd_cny_rate",
+			);
+		}
+		pricingPatch.usd_cny_rate = rate;
+		pricingUsdCnyRateForConversion = rate;
+		pricingTouched = true;
+	}
+
+	if (body.pricing_currency !== undefined) {
+		const currency = String(body.pricing_currency).trim().toUpperCase();
+		if (currency !== "USD" && currency !== "CNY") {
+			return jsonError(
+				c,
+				400,
+				"invalid_pricing_currency",
+				"invalid_pricing_currency",
+			);
+		}
+		const currentPricingSettings = await getPricingSettings(db);
+		pricingPatch.currency = currency;
+		pricingTouched = true;
+		if (currentPricingSettings.currency !== currency) {
+			await convertStoredModelPricesCurrency(
+				db,
+				currency,
+				pricingUsdCnyRateForConversion ?? currentPricingSettings.usd_cny_rate,
+			);
+		}
+	}
+
 	if (runtimeTouched) {
 		await setProxyRuntimeSettings(db, runtimePatch);
+		touched = true;
+	}
+
+	if (pricingTouched) {
+		await setPricingSettings(db, pricingPatch);
 		touched = true;
 	}
 

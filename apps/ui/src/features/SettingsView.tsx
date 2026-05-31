@@ -87,6 +87,11 @@ const backupSyncModeOptions: {
 	{ value: "two_way", label: "双向同步" },
 ];
 
+const pricingCurrencyOptions = [
+	{ value: "CNY", label: "CNY" },
+	{ value: "USD", label: "USD" },
+];
+
 const backupImportModeOptions: {
 	value: BackupSettings["import_mode"];
 	label: string;
@@ -101,6 +106,16 @@ const backupConflictPolicyOptions: {
 }[] = [
 	{ value: "local_wins", label: "本地优先" },
 	{ value: "remote_wins", label: "远端优先" },
+];
+
+const pricingSourceOptions = [
+	{ value: "openai", label: "OpenAI" },
+	{ value: "anthropic", label: "Claude" },
+	{ value: "gemini", label: "Gemini" },
+	{ value: "deepseek", label: "DeepSeek" },
+	{ value: "qwen", label: "通义千问" },
+	{ value: "moonshot", label: "Moonshot" },
+	{ value: "zhipu", label: "智谱" },
 ];
 
 /**
@@ -470,6 +485,185 @@ export const SettingsView = ({
 
 				<Card class="app-settings-group app-settings-group--allow-overflow">
 					<div class="app-settings-group__header">
+						<h4 class="app-settings-group__title">模型价格</h4>
+						<p class="app-settings-group__caption">价格同步与下游计费口径</p>
+					</div>
+					<div class="app-settings-list app-settings-list--allow-overflow">
+						<div class="app-settings-row">
+							<div class="app-settings-row__main">
+								<span class="app-settings-row__label">启用每日同步价格</span>
+								<p class="app-settings-row__hint">
+									每天按设定时间抓取选中的价格源，能结构化解析的会标为同步精确价。
+								</p>
+							</div>
+							<div class="app-settings-row__switch">
+								<Switch
+									checked={settingsForm.pricing_sync_enabled}
+									onToggle={(next) => {
+										onFormChange({ pricing_sync_enabled: next });
+									}}
+								/>
+							</div>
+						</div>
+						<div class="app-settings-row">
+							<div class="app-settings-row__main">
+								<label
+									class="app-settings-row__label"
+									for="pricing-sync-schedule-time"
+								>
+									同步时间（中国时间）
+								</label>
+								<p class="app-settings-row__hint">每天自动抓取价格的时间</p>
+							</div>
+							<Input
+								class="app-settings-row__control"
+								id="pricing-sync-schedule-time"
+								name="pricing_sync_schedule_time"
+								type="time"
+								disabled={!settingsForm.pricing_sync_enabled}
+								value={settingsForm.pricing_sync_schedule_time}
+								onInput={(event) => {
+									const target = event.currentTarget as HTMLInputElement | null;
+									onFormChange({
+										pricing_sync_schedule_time: target?.value ?? "",
+									});
+								}}
+							/>
+						</div>
+						<div class="app-settings-row app-settings-row--stack">
+							<div class="app-settings-row__main">
+								<span class="app-settings-row__label">价格源</span>
+								<p class="app-settings-row__hint">
+									用于手动同步和每日同步；解析不了结构化价格时才标为估算价。
+								</p>
+							</div>
+							<MultiSelect
+								class="app-settings-row__control app-settings-row__control--full"
+								options={pricingSourceOptions}
+								value={settingsForm.pricing_sync_sources}
+								placeholder="选择价格源"
+								searchPlaceholder="搜索价格源"
+								emptyLabel="暂无价格源"
+								onChange={(next) => {
+									onFormChange({ pricing_sync_sources: next });
+								}}
+							/>
+						</div>
+						<div class="app-settings-row">
+							<div class="app-settings-row__main">
+								<span class="app-settings-row__label">计价币种</span>
+								<p class="app-settings-row__hint">
+									价格中心和使用日志统一按这个币种保存，不再混用 USD/CNY。
+								</p>
+							</div>
+							<div class="app-settings-row__control">
+								<div class="app-settings-custom-select">
+									<button
+										aria-expanded={openBackupSelectKey === "pricing_currency"}
+										class="app-input app-focus app-settings-custom-select__trigger"
+										id="pricing-currency"
+										type="button"
+										onClick={(event) => {
+											event.stopPropagation();
+											setOpenBackupSelectKey((current) =>
+												current === "pricing_currency"
+													? null
+													: "pricing_currency",
+											);
+										}}
+									>
+										<span class="app-settings-custom-select__value">
+											{settingsForm.pricing_currency}
+										</span>
+									</button>
+									<DropdownMenu
+										open={openBackupSelectKey === "pricing_currency"}
+									>
+										<DropdownMenuContent class="app-settings-custom-select__menu">
+											{pricingCurrencyOptions.map((option) => (
+												<DropdownMenuItem
+													class={`app-settings-custom-select__option ${
+														option.value === settingsForm.pricing_currency
+															? "app-dropdown-item--active"
+															: ""
+													}`}
+													key={option.value}
+													onClick={() => {
+														onFormChange({
+															pricing_currency: option.value as "USD" | "CNY",
+														});
+														setOpenBackupSelectKey(null);
+													}}
+												>
+													<span>{option.label}</span>
+												</DropdownMenuItem>
+											))}
+										</DropdownMenuContent>
+									</DropdownMenu>
+								</div>
+							</div>
+						</div>
+						<div class="app-settings-row">
+							<div class="app-settings-row__main">
+								<label
+									class="app-settings-row__label"
+									for="pricing-usd-cny-rate"
+								>
+									USD/CNY 汇率
+								</label>
+								<p class="app-settings-row__hint">
+									每日同步会从在线汇率 API 更新；不可用时使用这里保存的值。
+								</p>
+							</div>
+							<Input
+								class="app-settings-row__control app-settings-row__control--compact"
+								id="pricing-usd-cny-rate"
+								name="pricing_usd_cny_rate"
+								type="number"
+								min="0.0001"
+								step="0.0001"
+								value={settingsForm.pricing_usd_cny_rate}
+								onInput={(event) => {
+									const target = event.currentTarget as HTMLInputElement | null;
+									onFormChange({
+										pricing_usd_cny_rate: target?.value ?? "",
+									});
+								}}
+							/>
+						</div>
+						<div class="app-settings-row">
+							<div class="app-settings-row__main">
+								<label
+									class="app-settings-row__label"
+									for="pricing-default-markup"
+								>
+									默认销售倍率
+								</label>
+								<p class="app-settings-row__hint">
+									最终计费金额会在命中价格后乘以该倍率
+								</p>
+							</div>
+							<Input
+								class="app-settings-row__control app-settings-row__control--compact"
+								id="pricing-default-markup"
+								name="pricing_default_markup"
+								type="number"
+								min="0.0001"
+								step="0.0001"
+								value={settingsForm.pricing_default_markup}
+								onInput={(event) => {
+									const target = event.currentTarget as HTMLInputElement | null;
+									onFormChange({
+										pricing_default_markup: target?.value ?? "",
+									});
+								}}
+							/>
+						</div>
+					</div>
+				</Card>
+
+				<Card class="app-settings-group app-settings-group--allow-overflow">
+					<div class="app-settings-group__header">
 						<h4 class="app-settings-group__title">代理请求</h4>
 						<p class="app-settings-group__caption">上游调用与重试策略</p>
 					</div>
@@ -492,7 +686,9 @@ export const SettingsView = ({
 								min="0"
 								value={
 									settingsForm.proxy_upstream_timeout_ms
-										? String(Number(settingsForm.proxy_upstream_timeout_ms) / 1000)
+										? String(
+												Number(settingsForm.proxy_upstream_timeout_ms) / 1000,
+											)
 										: "0"
 								}
 								onInput={(event) => {

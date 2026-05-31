@@ -53,9 +53,12 @@ import type {
 	DashboardData,
 	DashboardQuery,
 	ModelChannel,
+	ModelPrice,
+	ModelPriceInput,
 	ModelStatusUpdate,
 	NoticeMessage,
 	NoticeTone,
+	PricingSyncResult,
 	Settings,
 	SettingsForm,
 	SiteChannelRefreshBatchReport,
@@ -85,6 +88,7 @@ import { ChannelsView } from "./features/ChannelsView";
 import { DashboardView } from "./features/DashboardView";
 import { LoginView } from "./features/LoginView";
 import { ModelsView } from "./features/ModelsView";
+import { PricingView } from "./features/PricingView";
 import { isRequestEntryFormatAllowedForSiteType } from "./features/request-entry-formats";
 import { SettingsView } from "./features/SettingsView";
 import { TokensView } from "./features/TokensView";
@@ -107,6 +111,7 @@ const tabToPath: Record<TabId, string> = {
 	dashboard: "/",
 	channels: "/channels",
 	models: "/models",
+	pricing: "/pricing",
 	tokens: "/tokens",
 	usage: "/usage",
 	settings: "/settings",
@@ -116,6 +121,7 @@ const pathToTab: Record<string, TabId> = {
 	"/": "dashboard",
 	"/channels": "channels",
 	"/models": "models",
+	"/pricing": "pricing",
 	"/tokens": "tokens",
 	"/usage": "usage",
 	"/settings": "settings",
@@ -355,6 +361,7 @@ const App = () => {
 		useState<SettingsForm>(initialSettingsForm);
 	const [settingsFormSnapshot, setSettingsFormSnapshot] =
 		useState<SettingsForm>(initialSettingsForm);
+	const [modelPrices, setModelPrices] = useState<ModelPrice[]>([]);
 	const [backupSettings, setBackupSettings] = useState<BackupSettings>(
 		initialBackupSettings,
 	);
@@ -647,6 +654,13 @@ const App = () => {
 		setData((prev) => ({ ...prev, models: result.models }));
 	}, [apiFetch]);
 
+	const loadPricingModels = useCallback(async () => {
+		const result = await apiFetch<{ prices: ModelPrice[] }>(
+			"/api/pricing/models",
+		);
+		setModelPrices(result.prices);
+	}, [apiFetch]);
+
 	const loadTokens = useCallback(async () => {
 		const result = await apiFetch<{ tokens: Token[] }>("/api/tokens");
 		setData((prev) => ({ ...prev, tokens: result.tokens }));
@@ -737,6 +751,9 @@ const App = () => {
 				if (tabId === "models") {
 					await loadModels();
 				}
+				if (tabId === "pricing") {
+					await loadPricingModels();
+				}
 				if (tabId === "tokens") {
 					await Promise.all([loadTokens(), loadSites()]);
 				}
@@ -765,6 +782,7 @@ const App = () => {
 			dismissNotice,
 			loadDashboard,
 			loadModels,
+			loadPricingModels,
 			loadRetryErrorCodes,
 			loadBackupSettings,
 			loadSettings,
@@ -884,6 +902,26 @@ const App = () => {
 			),
 			site_task_fallback_enabled:
 				runtimeSettings?.site_task_fallback_enabled ?? true,
+			pricing_sync_enabled:
+				data.settings.pricing_settings?.sync_enabled ?? false,
+			pricing_sync_schedule_time:
+				data.settings.pricing_settings?.sync_schedule_time ?? "04:40",
+			pricing_sync_sources: data.settings.pricing_settings?.sync_sources ?? [
+				"openai",
+				"anthropic",
+				"gemini",
+				"deepseek",
+				"qwen",
+				"moonshot",
+				"zhipu",
+			],
+			pricing_default_markup: String(
+				data.settings.pricing_settings?.default_markup ?? 1,
+			),
+			pricing_currency: data.settings.pricing_settings?.currency ?? "CNY",
+			pricing_usd_cny_rate: String(
+				data.settings.pricing_settings?.usd_cny_rate ?? 7.2,
+			),
 		};
 		setSettingsForm(nextSettingsForm);
 		setSettingsFormSnapshot(nextSettingsForm);
@@ -979,9 +1017,18 @@ const App = () => {
 	}, []);
 
 	const handleApplyRecommendedConfig = useCallback(() => {
-		setSettingsForm((prev) =>
-			buildRecommendedSettingsForm(prev.admin_password),
-		);
+		setSettingsForm((prev) => ({
+			...buildRecommendedSettingsForm(prev.admin_password),
+			pricing_sync_enabled: true,
+			pricing_sync_schedule_time: prev.pricing_sync_schedule_time || "04:40",
+			pricing_sync_sources:
+				prev.pricing_sync_sources.length > 0
+					? prev.pricing_sync_sources
+					: initialSettingsForm.pricing_sync_sources,
+			pricing_default_markup: prev.pricing_default_markup || "1",
+			pricing_currency: prev.pricing_currency || "CNY",
+			pricing_usd_cny_rate: prev.pricing_usd_cny_rate || "7.2",
+		}));
 		setBackupSettings((prev) => ({
 			...prev,
 			enabled: true,
@@ -1715,6 +1762,10 @@ const App = () => {
 			);
 			const siteTaskConcurrency = Number(settingsForm.site_task_concurrency);
 			const siteTaskTimeoutMs = Number(settingsForm.site_task_timeout_ms);
+			const pricingScheduleTime =
+				settingsForm.pricing_sync_schedule_time.trim();
+			const pricingMarkup = Number(settingsForm.pricing_default_markup);
+			const pricingUsdCnyRate = Number(settingsForm.pricing_usd_cny_rate);
 			if (
 				Number.isNaN(retention) ||
 				retention < 1 ||
@@ -1845,6 +1896,18 @@ const App = () => {
 				pushNotice("warning", "启用渠道更新时间需为 HH:mm");
 				return;
 			}
+			if (!/^\d{2}:\d{2}$/.test(pricingScheduleTime)) {
+				pushNotice("warning", "价格同步时间需为 HH:mm");
+				return;
+			}
+			if (Number.isNaN(pricingMarkup) || pricingMarkup <= 0) {
+				pushNotice("warning", "销售倍率需为大于 0 的数字");
+				return;
+			}
+			if (Number.isNaN(pricingUsdCnyRate) || pricingUsdCnyRate <= 0) {
+				pushNotice("warning", "USD/CNY 汇率需为大于 0 的数字");
+				return;
+			}
 			const backupScheduleTime = backupSettings.schedule_time.trim();
 			if (!/^\d{2}:\d{2}$/.test(backupScheduleTime)) {
 				pushNotice("warning", "定时备份时间需为 HH:mm");
@@ -1904,6 +1967,14 @@ const App = () => {
 				site_task_concurrency: siteTaskConcurrency,
 				site_task_timeout_ms: siteTaskTimeoutMs,
 				site_task_fallback_enabled: settingsForm.site_task_fallback_enabled,
+				pricing_sync_enabled: settingsForm.pricing_sync_enabled,
+				pricing_sync_schedule_time: pricingScheduleTime,
+				pricing_sync_sources: normalizeErrorCodeList(
+					settingsForm.pricing_sync_sources,
+				),
+				pricing_default_markup: pricingMarkup,
+				pricing_currency: settingsForm.pricing_currency,
+				pricing_usd_cny_rate: pricingUsdCnyRate,
 			};
 			const password = settingsForm.admin_password.trim();
 			if (password) {
@@ -2700,6 +2771,151 @@ const App = () => {
 		],
 	);
 
+	const handlePricingSync = useCallback(async () => {
+		const actionKey = buildActionKey("pricing:sync");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const result = await apiFetch<PricingSyncResult>("/api/pricing/sync", {
+				method: "POST",
+				body: JSON.stringify({
+					sources: settingsForm.pricing_sync_sources.filter(Boolean),
+				}),
+			});
+			await loadPricingModels();
+			const total = result.items.reduce((sum, item) => sum + item.count, 0);
+			const exactTotal = result.items.reduce(
+				(sum, item) => sum + (item.exact_count ?? 0),
+				0,
+			);
+			const estimatedTotal = result.items.reduce(
+				(sum, item) => sum + (item.estimated_count ?? 0),
+				0,
+			);
+			pushNotice(
+				result.ok ? "success" : "warning",
+				result.ok
+					? `价格同步完成，按 ${result.currency} 更新 ${total} 条：精确 ${exactTotal} 条，估算 ${estimatedTotal} 条，USD/CNY ${result.usd_cny_rate}`
+					: "价格同步完成，但没有抓到可用价格",
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadPricingModels,
+		pushNotice,
+		settingsForm.pricing_sync_sources,
+		startAction,
+	]);
+
+	const handlePricingCreate = useCallback(
+		async (payload: ModelPriceInput) => {
+			const actionKey = buildActionKey("pricing:create");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/pricing/models", {
+					method: "POST",
+					body: JSON.stringify({
+						...payload,
+						source: payload.source ?? "manual",
+					}),
+				});
+				await loadPricingModels();
+				pushNotice("success", "手动价格已保存");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handlePricingUpdate = useCallback(
+		async (id: string, patch: Partial<ModelPriceInput>) => {
+			const actionKey = buildActionKey("pricing:update", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/pricing/models/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify(patch),
+				});
+				await loadPricingModels();
+				pushNotice("success", "价格已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const requestPricingDelete = useCallback(
+		(price: ModelPrice) => {
+			openConfirm({
+				title: "删除价格",
+				message: `确定删除 ${price.provider}/${price.model_pattern} 的价格吗？`,
+				confirmLabel: "删除",
+				tone: "error",
+				onConfirm: async () => {
+					const actionKey = buildActionKey("pricing:delete", price.id);
+					if (isActionPending(actionKey)) {
+						return;
+					}
+					startAction(actionKey);
+					try {
+						await apiFetch(`/api/pricing/models/${price.id}`, {
+							method: "DELETE",
+						});
+						await loadPricingModels();
+						pushNotice("success", "价格已删除");
+					} catch (error) {
+						pushNotice("error", (error as Error).message);
+					} finally {
+						endAction(actionKey);
+					}
+				},
+			});
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			openConfirm,
+			pushNotice,
+			startAction,
+		],
+	);
+
 	const handleUsageRefresh = useCallback(async () => {
 		const actionKey = buildActionKey("usage:refresh");
 		if (isActionPending(actionKey)) {
@@ -2859,6 +3075,25 @@ const App = () => {
 		}
 		if (activeTab === "models") {
 			return <ModelsView models={data.models} />;
+		}
+		if (activeTab === "pricing") {
+			return (
+				<PricingView
+					prices={modelPrices}
+					pricingCurrency={settingsForm.pricing_currency}
+					isPricingSyncing={isActionPending(buildActionKey("pricing:sync"))}
+					isPricingSaving={
+						isActionPending(buildActionKey("pricing:create")) ||
+						modelPrices.some((price) =>
+							isActionPending(buildActionKey("pricing:update", price.id)),
+						)
+					}
+					onPricingSync={handlePricingSync}
+					onPricingCreate={handlePricingCreate}
+					onPricingUpdate={handlePricingUpdate}
+					onPricingDelete={requestPricingDelete}
+				/>
+			);
 		}
 		if (activeTab === "tokens") {
 			return (

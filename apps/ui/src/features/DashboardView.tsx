@@ -28,6 +28,7 @@ import {
 	loadColumnPrefs,
 	persistColumnPrefs,
 } from "../core/utils";
+import { formatChargeByCurrency } from "./pricing-display";
 
 type DashboardViewProps = {
 	dashboard: DashboardData | null;
@@ -86,10 +87,10 @@ export const DashboardView = ({
 	const trendColumnDefaults = ["bucket", "requests", "tokens"];
 	const rankColumnDefaults = ["name", "requests", "tokens"];
 	const [trendColumns, setTrendColumns] = useState(() =>
-		loadColumnPrefs("columns:dashboard:trend", trendColumnDefaults),
+		loadColumnPrefs("columns:dashboard:trend:v2", trendColumnDefaults),
 	);
 	const [rankColumns, setRankColumns] = useState(() =>
-		loadColumnPrefs("columns:dashboard:rank", rankColumnDefaults),
+		loadColumnPrefs("columns:dashboard:rank:v2", rankColumnDefaults),
 	);
 	const trendColumnSet = useMemo(() => new Set(trendColumns), [trendColumns]);
 	const rankColumnSet = useMemo(() => new Set(rankColumns), [rankColumns]);
@@ -103,6 +104,8 @@ export const DashboardView = ({
 		{ id: "requests", label: "请求" },
 		{ id: "tokens", label: "Tokens" },
 	];
+	const trendColumnCount = trendColumns.length;
+	const rankColumnCount = rankColumns.length;
 	const intervalLabel =
 		query.interval === "week" ? "周" : query.interval === "month" ? "月" : "日";
 	const hasAdvancedFilters = Boolean(
@@ -142,6 +145,7 @@ export const DashboardView = ({
 				name: row.channel_name ?? "-",
 				requests: row.requests,
 				tokens: row.tokens,
+				charge: row.charge,
 			}));
 		}
 		if (activeRankTab === "token") {
@@ -149,21 +153,23 @@ export const DashboardView = ({
 				name: row.token_name ?? "-",
 				requests: row.requests,
 				tokens: row.tokens,
+				charge: row.charge,
 			}));
 		}
 		return dashboard.byModel.map((row) => ({
 			name: row.model ?? "-",
 			requests: row.requests,
 			tokens: row.tokens,
+			charge: row.charge,
 		}));
 	}, [activeRankTab, dashboard]);
 	const updateTrendColumns = (next: string[]) => {
 		setTrendColumns(next);
-		persistColumnPrefs("columns:dashboard:trend", next);
+		persistColumnPrefs("columns:dashboard:trend:v2", next);
 	};
 	const updateRankColumns = (next: string[]) => {
 		setRankColumns(next);
-		persistColumnPrefs("columns:dashboard:rank", next);
+		persistColumnPrefs("columns:dashboard:rank:v2", next);
 	};
 	const setPreset = (preset: DashboardQuery["preset"]) => {
 		if (preset === "all") {
@@ -449,7 +455,7 @@ export const DashboardView = ({
 				</Card>
 				{isRefreshing ? (
 					<div class="app-grid app-grid--kpi">
-						{Array.from({ length: 4 }).map((_, index) => (
+						{Array.from({ length: 5 }).map((_, index) => (
 							<Card variant="compact" key={`kpi-skeleton-${index}`}>
 								<Skeleton class="h-4 w-20" />
 								<Skeleton class="mt-3 h-7 w-24" />
@@ -654,6 +660,13 @@ export const DashboardView = ({
 					<span class="app-kpi-meta">累计消耗</span>
 				</Card>
 				<Card variant="compact">
+					<Chip variant="accent">销售额</Chip>
+					<div class="app-kpi-value app-kpi-value--compact">
+						{formatChargeByCurrency(dashboard.chargeByCurrency ?? [])}
+					</div>
+					<span class="app-kpi-meta">按币种分别汇总</span>
+				</Card>
+				<Card variant="compact">
 					<Chip>成功率</Chip>
 					<div class="app-kpi-value">{successRate}%</div>
 					<span class="app-kpi-meta">错误率 {errorRate}%</span>
@@ -764,7 +777,7 @@ export const DashboardView = ({
 										<TableRow>
 											<TableCell
 												class="px-3 py-6 text-center text-sm text-[color:var(--app-ink-muted)]"
-												colSpan={3}
+												colSpan={trendColumnCount}
 											>
 												暂无趋势数据
 											</TableCell>
@@ -856,7 +869,7 @@ export const DashboardView = ({
 											<TableRow>
 												<TableCell
 													class="px-3 py-6 text-center text-sm text-[color:var(--app-ink-muted)]"
-													colSpan={3}
+													colSpan={rankColumnCount}
 												>
 													暂无排行数据
 												</TableCell>

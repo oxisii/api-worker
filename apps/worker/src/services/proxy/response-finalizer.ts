@@ -291,26 +291,6 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 				hasImmediateUsage: Boolean(selectedImmediateUsage),
 				hasUsageHeaders: selectedHasUsageHeaders,
 			});
-			if (
-				selectedAttemptIndex !== null &&
-				selectedAttemptStartedAt &&
-				selectedAttemptLatencyMs !== null
-			) {
-				recordAttemptLog({
-					attemptIndex: selectedAttemptIndex,
-					channelId: selectedChannel.id,
-					provider: selectedUpstreamProvider,
-					model: selectedUpstreamModel ?? downstreamModel,
-					status: "warn",
-					errorClass: "stream_meta",
-					errorCode: STREAM_META_PARTIAL_CODE,
-					httpStatus: selectedResponse.status,
-					latencyMs: selectedAttemptLatencyMs,
-					upstreamRequestId: selectedAttemptUpstreamRequestId,
-					startedAt: selectedAttemptStartedAt,
-					endedAt: new Date().toISOString(),
-				});
-			}
 		}
 
 		const usageWarning = getSuccessfulUsageWarning({
@@ -345,19 +325,13 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 			usageSource,
 			firstTokenLatencyMs,
 			status: streamMetaPartial || usageWarning ? "warn" : "ok",
-			errorCode:
-				usageWarning?.code ??
-				(streamMetaPartial ? STREAM_META_PARTIAL_CODE : null),
-			errorMessage:
-				usageWarning?.message ??
-				(streamMetaPartial ? STREAM_META_PARTIAL_CODE : null),
+			errorCode: usageWarning?.code ?? null,
+			errorMessage: usageWarning?.message ?? null,
 			failureStage:
 				usageWarning || streamMetaPartial
 					? USAGE_OBSERVE_FAILURE_STAGE
 					: "usage_finalize",
-			failureReason:
-				usageWarning?.code ??
-				(streamMetaPartial ? STREAM_META_PARTIAL_CODE : null),
+			failureReason: usageWarning?.code ?? streamMetaReason ?? null,
 		};
 	}
 

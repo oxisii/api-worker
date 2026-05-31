@@ -3,6 +3,10 @@ import type { AppEnv } from "../env";
 
 const dashboard = new Hono<AppEnv>();
 
+export function summarizeChargeByCurrencySql(sql: string): string {
+	return `SELECT COALESCE(NULLIF(charge_currency, ''), 'USD') as currency, COALESCE(SUM(charge_amount), 0) as amount FROM usage_logs${sql} AND charge_amount IS NOT NULL GROUP BY charge_currency ORDER BY currency ASC`;
+}
+
 function splitCsv(value?: string): string[] {
 	if (!value) {
 		return [];
@@ -89,33 +93,48 @@ dashboard.get("/", async (c) => {
 		.bind(...params)
 		.first();
 
+	const chargeByCurrency = await db
+		.prepare(summarizeChargeByCurrencySql(sql))
+		.bind(...params)
+		.all<{ currency: string; amount: number }>();
+
 	const trend = await db
 		.prepare(
-			`SELECT ${bucketExpression} as bucket, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens FROM usage_logs${sql} GROUP BY bucket ORDER BY bucket ASC LIMIT ?`,
+			`SELECT ${bucketExpression} as bucket, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY bucket ORDER BY bucket ASC LIMIT ?`,
 		)
 		.bind(...params, limit)
 		.all();
 
 	const byModel = await db
 		.prepare(
-			`SELECT model, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens FROM usage_logs${sql} GROUP BY model ORDER BY requests DESC LIMIT 20`,
+			`SELECT model, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY model ORDER BY requests DESC LIMIT 20`,
 		)
 		.bind(...params)
 		.all();
 
 	const byChannelAgg = await db
 		.prepare(
-			`SELECT channel_id, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens FROM usage_logs${sql} GROUP BY channel_id ORDER BY requests DESC LIMIT 20`,
+			`SELECT channel_id, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY channel_id ORDER BY requests DESC LIMIT 20`,
 		)
 		.bind(...params)
-		.all<{ channel_id: string | null; requests: number; tokens: number }>();
+		.all<{
+			channel_id: string | null;
+			requests: number;
+			tokens: number;
+			charge: number;
+		}>();
 
 	const byTokenAgg = await db
 		.prepare(
-			`SELECT token_id, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens FROM usage_logs${sql} GROUP BY token_id ORDER BY requests DESC LIMIT 20`,
+			`SELECT token_id, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY token_id ORDER BY requests DESC LIMIT 20`,
 		)
 		.bind(...params)
-		.all<{ token_id: string | null; requests: number; tokens: number }>();
+		.all<{
+			token_id: string | null;
+			requests: number;
+			tokens: number;
+			charge: number;
+		}>();
 
 	const channelIds = Array.from(
 		new Set(
@@ -145,6 +164,7 @@ dashboard.get("/", async (c) => {
 				: "未归属",
 			requests: Number(row.requests ?? 0),
 			tokens: Number(row.tokens ?? 0),
+			charge: Number(row.charge ?? 0),
 		};
 	});
 
@@ -154,6 +174,7 @@ dashboard.get("/", async (c) => {
 			token_name: tokenId ? (tokenNameMap.get(tokenId) ?? tokenId) : "未归属",
 			requests: Number(row.requests ?? 0),
 			tokens: Number(row.tokens ?? 0),
+			charge: Number(row.charge ?? 0),
 		};
 	});
 
@@ -164,6 +185,10 @@ dashboard.get("/", async (c) => {
 			avg_latency: 0,
 			total_errors: 0,
 		},
+		chargeByCurrency: (chargeByCurrency.results ?? []).map((row) => ({
+			currency: String(row.currency || "USD").toUpperCase(),
+			amount: Number(row.amount ?? 0),
+		})),
 		trend: trend.results ?? [],
 		interval,
 		byModel: byModel.results ?? [],

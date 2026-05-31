@@ -4,12 +4,12 @@ import {
 	parseUsageFromSseLineViaWasm,
 } from "../wasm/core";
 import { safeJsonParse } from "./json";
+import {
+	enrichNormalizedUsage,
+	type NormalizedUsage as RichNormalizedUsage,
+} from "./usage-normalize";
 
-export type NormalizedUsage = {
-	totalTokens: number;
-	promptTokens: number;
-	completionTokens: number;
-};
+export type NormalizedUsage = RichNormalizedUsage;
 
 export type StreamUsage = {
 	usage: NormalizedUsage | null;
@@ -200,11 +200,11 @@ function pickNumber(...values: Array<unknown>): number | null {
 }
 
 export function normalizeUsage(raw: unknown): NormalizedUsage | null {
-	return normalizeUsageViaWasm(raw);
+	return enrichNormalizedUsage(normalizeUsageViaWasm(raw), raw);
 }
 
 export function parseUsageFromJson(payload: unknown): NormalizedUsage | null {
-	return parseUsageFromJsonViaWasm(payload);
+	return enrichNormalizedUsage(parseUsageFromJsonViaWasm(payload), payload);
 }
 
 export function parseUsageFromHeaders(
@@ -244,6 +244,9 @@ export function parseUsageFromHeaders(
 		totalTokens: totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0),
 		promptTokens: promptTokens ?? 0,
 		completionTokens: completionTokens ?? 0,
+		cacheReadInputTokens: 0,
+		cacheWriteInputTokens: 0,
+		uncachedInputTokens: promptTokens ?? 0,
 	};
 }
 
@@ -398,7 +401,7 @@ export async function parseUsageFromSse(
 							};
 						}
 					}
-					let wasmCandidate: NormalizedUsage | null = null;
+					let wasmCandidate = null;
 					try {
 						wasmCandidate = parseUsageFromSseLineViaWasm(line);
 					} catch (error) {
@@ -414,7 +417,7 @@ export async function parseUsageFromSse(
 						);
 					}
 					if (wasmCandidate) {
-						usage = wasmCandidate;
+						usage = enrichNormalizedUsage(wasmCandidate, parsedPayload);
 						newlineIndex = buffer.indexOf("\n");
 						continue;
 					}
@@ -462,7 +465,7 @@ export async function parseUsageFromSse(
 					};
 				}
 			}
-			let wasmCandidate: NormalizedUsage | null = null;
+			let wasmCandidate = null;
 			try {
 				wasmCandidate = parseUsageFromSseLineViaWasm(remaining);
 			} catch (error) {
@@ -478,7 +481,7 @@ export async function parseUsageFromSse(
 				);
 			}
 			if (wasmCandidate) {
-				usage = wasmCandidate;
+				usage = enrichNormalizedUsage(wasmCandidate, parsedPayload);
 				if (timeoutId) {
 					clearTimeout(timeoutId);
 				}

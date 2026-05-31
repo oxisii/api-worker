@@ -29,6 +29,7 @@ import {
 	loadColumnPrefs,
 	persistColumnPrefs,
 } from "../core/utils";
+import { formatChargeAmount } from "./pricing-display";
 import { formatUsageTokens } from "./usage-format";
 
 type UsageViewProps = {
@@ -170,7 +171,12 @@ export const UsageView = ({
 		{ id: "channel", label: "渠道" },
 		{ id: "token", label: "令牌" },
 		{ id: "prompt_tokens", label: "输入 Tokens" },
+		{ id: "uncached_input_tokens", label: "普通输入" },
+		{ id: "cache_read_input_tokens", label: "缓存读取" },
+		{ id: "cache_write_input_tokens", label: "缓存写入" },
+		{ id: "billable_input_tokens", label: "输入合计" },
 		{ id: "completion_tokens", label: "输出 Tokens" },
+		{ id: "charge", label: "计费金额" },
 		{ id: "latency", label: "用时 (s)" },
 		{ id: "first_token", label: "首 token 延迟 (s)" },
 		{ id: "stream", label: "流式" },
@@ -179,7 +185,7 @@ export const UsageView = ({
 	];
 	const [visibleColumns, setVisibleColumns] = useState(() =>
 		loadColumnPrefs(
-			"columns:usage",
+			"columns:usage:v2",
 			usageColumns.map((column) => column.id),
 		),
 	);
@@ -190,7 +196,7 @@ export const UsageView = ({
 	const visibleColumnCount = visibleColumns.length;
 	const updateVisibleColumns = (next: string[]) => {
 		setVisibleColumns(next);
-		persistColumnPrefs("columns:usage", next);
+		persistColumnPrefs("columns:usage:v2", next);
 	};
 	const totalPages = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -451,7 +457,7 @@ export const UsageView = ({
 				</Card>
 				<div class="app-surface app-data-shell overflow-hidden">
 					<div class="h-[360px] overflow-auto sm:h-[440px]">
-						<table class="app-table min-w-[960px] w-full text-xs sm:text-sm">
+						<table class="app-table min-w-[1320px] w-full text-xs sm:text-sm">
 							<thead>
 								<tr>
 									{visibleColumnSet.has("time") && (
@@ -479,9 +485,34 @@ export const UsageView = ({
 											输入 Tokens
 										</th>
 									)}
+									{visibleColumnSet.has("uncached_input_tokens") && (
+										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
+											普通输入
+										</th>
+									)}
+									{visibleColumnSet.has("cache_read_input_tokens") && (
+										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
+											缓存读取
+										</th>
+									)}
+									{visibleColumnSet.has("cache_write_input_tokens") && (
+										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
+											缓存写入
+										</th>
+									)}
+									{visibleColumnSet.has("billable_input_tokens") && (
+										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
+											输入合计
+										</th>
+									)}
 									{visibleColumnSet.has("completion_tokens") && (
 										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
 											输出 Tokens
+										</th>
+									)}
+									{visibleColumnSet.has("charge") && (
+										<th class="sticky top-0 bg-[color:var(--app-surface-strong)]/95">
+											计费金额
 										</th>
 									)}
 									{visibleColumnSet.has("latency") && (
@@ -579,9 +610,43 @@ export const UsageView = ({
 														{formatUsageTokens(log, log.prompt_tokens)}
 													</td>
 												)}
+												{visibleColumnSet.has("uncached_input_tokens") && (
+													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
+														{formatUsageTokens(log, log.uncached_input_tokens)}
+													</td>
+												)}
+												{visibleColumnSet.has("cache_read_input_tokens") && (
+													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
+														{formatUsageTokens(
+															log,
+															log.cache_read_input_tokens,
+														)}
+													</td>
+												)}
+												{visibleColumnSet.has("cache_write_input_tokens") && (
+													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
+														{formatUsageTokens(
+															log,
+															log.cache_write_input_tokens,
+														)}
+													</td>
+												)}
+												{visibleColumnSet.has("billable_input_tokens") && (
+													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
+														{formatUsageTokens(log, log.billable_input_tokens)}
+													</td>
+												)}
 												{visibleColumnSet.has("completion_tokens") && (
 													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
 														{formatUsageTokens(log, log.completion_tokens)}
+													</td>
+												)}
+												{visibleColumnSet.has("charge") && (
+													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
+														{formatChargeAmount(
+															log.charge_amount,
+															log.charge_currency,
+														)}
 													</td>
 												)}
 												{visibleColumnSet.has("latency") && (
@@ -740,6 +805,39 @@ export const UsageView = ({
 										Usage 来源
 									</span>
 									<span>{activeErrorLog.usage_source ?? "-"}</span>
+								</div>
+								<div class="flex items-center justify-between gap-3">
+									<span class="text-[color:var(--app-ink-muted)]">
+										缓存读取
+									</span>
+									<span>
+										{formatUsageTokens(
+											activeErrorLog,
+											activeErrorLog.cache_read_input_tokens,
+										)}
+									</span>
+								</div>
+								<div class="flex items-center justify-between gap-3">
+									<span class="text-[color:var(--app-ink-muted)]">
+										缓存写入
+									</span>
+									<span>
+										{formatUsageTokens(
+											activeErrorLog,
+											activeErrorLog.cache_write_input_tokens,
+										)}
+									</span>
+								</div>
+								<div class="flex items-center justify-between gap-3">
+									<span class="text-[color:var(--app-ink-muted)]">
+										计费金额
+									</span>
+									<span>
+										{formatChargeAmount(
+											activeErrorLog.charge_amount,
+											activeErrorLog.charge_currency,
+										)}
+									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-[color:var(--app-ink-muted)]">

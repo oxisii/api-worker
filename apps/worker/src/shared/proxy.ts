@@ -213,7 +213,6 @@ const HA_TRACE_ID_HEADER = "x-ha-trace-id";
 const HA_ATTEMPT_COUNT_HEADER = "x-ha-attempt-count";
 const HA_CANDIDATE_COUNT_HEADER = "x-ha-candidate-count";
 const HA_PROXY_QUALITY_HEADER = "x-ha-proxy-quality";
-const HA_BIZ_STATUS_HEADER = "x-ha-biz-status";
 const HA_QUALITY_REASON_HEADER = "x-ha-quality-reason";
 const MAX_ATTEMPT_WORKER_INVOCATIONS = 31;
 const USAGE_OBSERVE_FAILURE_STAGE = "usage_observe";
@@ -222,7 +221,6 @@ const PROVIDER_DETECT_FAILED_CODE = "provider_detect_failed";
 const WEIGHTED_ORDER_FAILED_CODE = "weighted_order_failed";
 const RESPONSE_ADAPT_FAILED_CODE = "response_adapt_failed";
 const STREAM_META_PARTIAL_CODE = "stream_meta_partial";
-const STREAM_META_PARTIAL_BIZ_STATUS = "29011";
 const NO_ROUTABLE_CHANNELS_ERROR_CODE = "no_routable_channels";
 
 let activeStreamUsageParsers = 0;
@@ -262,7 +260,6 @@ proxy.all("/*", tokenAuth, async (c) => {
 	let responseAttemptCount = 0;
 	let responseCandidateCount = 0;
 	let responseQuality: "ok" | "stream_meta_partial" = "ok";
-	let responseBizStatus: string | null = null;
 	let responseQualityReason: string | null = null;
 	const markStreamMetaPartial = (options: {
 		reason: string;
@@ -272,7 +269,6 @@ proxy.all("/*", tokenAuth, async (c) => {
 		hasUsageHeaders: boolean;
 	}) => {
 		responseQuality = "stream_meta_partial";
-		responseBizStatus = STREAM_META_PARTIAL_BIZ_STATUS;
 		responseQualityReason = options.reason;
 		console.warn("proxy_stream_meta_partial", {
 			traceId,
@@ -290,9 +286,6 @@ proxy.all("/*", tokenAuth, async (c) => {
 		headers.set(HA_CANDIDATE_COUNT_HEADER, String(responseCandidateCount));
 		if (responseQuality !== "ok") {
 			headers.set(HA_PROXY_QUALITY_HEADER, responseQuality);
-			if (responseBizStatus) {
-				headers.set(HA_BIZ_STATUS_HEADER, responseBizStatus);
-			}
 			if (responseQualityReason) {
 				headers.set(HA_QUALITY_REASON_HEADER, responseQualityReason);
 			}
@@ -604,7 +597,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 				totalTokens: options.usage?.totalTokens ?? null,
 				promptTokens: options.usage?.promptTokens ?? null,
 				completionTokens: options.usage?.completionTokens ?? null,
-				cost: 0,
+				cacheReadInputTokens: options.usage?.cacheReadInputTokens ?? null,
+				cacheWriteInputTokens: options.usage?.cacheWriteInputTokens ?? null,
+				uncachedInputTokens: options.usage?.uncachedInputTokens ?? null,
 				latencyMs: options.latencyMs,
 				firstTokenLatencyMs: options.firstTokenLatencyMs,
 				stream: isStream,

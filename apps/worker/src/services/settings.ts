@@ -64,6 +64,20 @@ const DEFAULT_BACKUP_WEBDAV_USERNAME = "";
 const DEFAULT_BACKUP_WEBDAV_PASSWORD = "";
 const DEFAULT_BACKUP_WEBDAV_PATH = "api-worker-backup";
 const DEFAULT_BACKUP_KEEP_VERSIONS = 30;
+const DEFAULT_PRICING_SYNC_ENABLED = false;
+const DEFAULT_PRICING_SYNC_SCHEDULE_TIME = "04:40";
+const DEFAULT_PRICING_CURRENCY = "CNY";
+const DEFAULT_PRICING_USD_CNY_RATE = 7.2;
+const DEFAULT_PRICING_SYNC_SOURCES = [
+	"openai",
+	"anthropic",
+	"gemini",
+	"deepseek",
+	"qwen",
+	"moonshot",
+	"zhipu",
+];
+const DEFAULT_PRICING_DEFAULT_MARKUP = 1;
 const SETTING_SNAPSHOT_TTL_MS = 1000;
 const RUNTIME_SETTING_SNAPSHOT_TTL_MS = 5000;
 const BACKUP_SETTING_SNAPSHOT_TTL_MS = 5000;
@@ -124,6 +138,12 @@ const BACKUP_LAST_SYNC_STATUS_KEY = "backup_last_sync_status";
 const BACKUP_LAST_SYNC_MESSAGE_KEY = "backup_last_sync_message";
 const BACKUP_PENDING_CHANGES_KEY = "backup_pending_changes";
 const BACKUP_PENDING_AT_KEY = "backup_pending_at";
+const PRICING_SYNC_ENABLED_KEY = "pricing_sync_enabled";
+const PRICING_SYNC_SCHEDULE_TIME_KEY = "pricing_sync_schedule_time";
+const PRICING_SYNC_SOURCES_KEY = "pricing_sync_sources";
+const PRICING_DEFAULT_MARKUP_KEY = "pricing_default_markup";
+const PRICING_CURRENCY_KEY = "pricing_currency";
+const PRICING_USD_CNY_RATE_KEY = "pricing_usd_cny_rate";
 
 const RUNTIME_SETTING_KEYS = [
 	PROXY_UPSTREAM_TIMEOUT_KEY,
@@ -169,6 +189,15 @@ const BACKUP_SETTING_KEYS = [
 	BACKUP_LAST_SYNC_MESSAGE_KEY,
 	BACKUP_PENDING_CHANGES_KEY,
 	BACKUP_PENDING_AT_KEY,
+] as const;
+
+const PRICING_SETTING_KEYS = [
+	PRICING_SYNC_ENABLED_KEY,
+	PRICING_SYNC_SCHEDULE_TIME_KEY,
+	PRICING_SYNC_SOURCES_KEY,
+	PRICING_DEFAULT_MARKUP_KEY,
+	PRICING_CURRENCY_KEY,
+	PRICING_USD_CNY_RATE_KEY,
 ] as const;
 
 export const BACKUP_LOCAL_ONLY_SETTING_KEYS = [...BACKUP_SETTING_KEYS];
@@ -262,6 +291,15 @@ export type BackupSettings = {
 	config_ready: boolean;
 };
 
+export type PricingSettings = {
+	sync_enabled: boolean;
+	sync_schedule_time: string;
+	sync_sources: string[];
+	default_markup: number;
+	currency: "USD" | "CNY";
+	usd_cny_rate: number;
+};
+
 type SettingSnapshot<T> = {
 	value: T;
 	expiresAt: number;
@@ -279,6 +317,7 @@ let modelCooldownSnapshot: SettingSnapshot<number> | null = null;
 let runtimeSettingsSnapshot: SettingSnapshot<ProxyRuntimeSettings> | null =
 	null;
 let backupSettingsSnapshot: SettingSnapshot<BackupSettings> | null = null;
+let pricingSettingsSnapshot: SettingSnapshot<PricingSettings> | null = null;
 
 async function readSetting(
 	db: D1Database,
@@ -396,6 +435,10 @@ function clearRuntimeSnapshots(): void {
 
 function clearBackupSnapshots(): void {
 	backupSettingsSnapshot = null;
+}
+
+function clearPricingSnapshots(): void {
+	pricingSettingsSnapshot = null;
 }
 
 export function isBackupConfigReady(config: {
@@ -1121,6 +1164,130 @@ export async function setModelFailureCooldownMinutes(
 	clearRuntimeSnapshots();
 }
 
+function parsePricingSources(value: string | null): string[] {
+	if (!value) {
+		return [...DEFAULT_PRICING_SYNC_SOURCES];
+	}
+	const parsed = normalizeErrorCodeList(value);
+	if (!parsed || parsed.length === 0) {
+		return [...DEFAULT_PRICING_SYNC_SOURCES];
+	}
+	return parsed;
+}
+
+export async function getPricingSettings(
+	db: D1Database,
+): Promise<PricingSettings> {
+	const snapshot = pricingSettingsSnapshot;
+	if (snapshot && snapshot.expiresAt > Date.now()) {
+		return snapshot.value;
+	}
+	const settings = await readSettingsByKeys(db, PRICING_SETTING_KEYS);
+	const scheduleRaw =
+		(settings[PRICING_SYNC_SCHEDULE_TIME_KEY] ?? "").trim() ||
+		DEFAULT_PRICING_SYNC_SCHEDULE_TIME;
+	const scheduleTime = parseScheduleTime(scheduleRaw)
+		? scheduleRaw
+		: DEFAULT_PRICING_SYNC_SCHEDULE_TIME;
+	const markup = Number(settings[PRICING_DEFAULT_MARKUP_KEY] ?? "");
+	const currencyRaw = String(
+		settings[PRICING_CURRENCY_KEY] ?? DEFAULT_PRICING_CURRENCY,
+	)
+		.trim()
+		.toUpperCase();
+	const usdCnyRate = Number(settings[PRICING_USD_CNY_RATE_KEY] ?? "");
+	const value: PricingSettings = {
+		sync_enabled: parseBooleanSetting(
+			settings[PRICING_SYNC_ENABLED_KEY] ?? null,
+			DEFAULT_PRICING_SYNC_ENABLED,
+		),
+		sync_schedule_time: scheduleTime,
+		sync_sources: parsePricingSources(
+			settings[PRICING_SYNC_SOURCES_KEY] ?? null,
+		),
+		default_markup:
+			Number.isFinite(markup) && markup > 0
+				? markup
+				: DEFAULT_PRICING_DEFAULT_MARKUP,
+		currency: currencyRaw === "USD" ? "USD" : "CNY",
+		usd_cny_rate:
+			Number.isFinite(usdCnyRate) && usdCnyRate > 0
+				? usdCnyRate
+				: DEFAULT_PRICING_USD_CNY_RATE,
+	};
+	pricingSettingsSnapshot = {
+		value,
+		expiresAt: Date.now() + SETTING_SNAPSHOT_TTL_MS,
+	};
+	return value;
+}
+
+export async function setPricingSettings(
+	db: D1Database,
+	update: Partial<PricingSettings>,
+): Promise<void> {
+	const tasks: Promise<void>[] = [];
+	if (update.sync_enabled !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_SYNC_ENABLED_KEY,
+				update.sync_enabled ? "1" : "0",
+			),
+		);
+	}
+	if (update.sync_schedule_time !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_SYNC_SCHEDULE_TIME_KEY,
+				update.sync_schedule_time,
+			),
+		);
+	}
+	if (update.sync_sources !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_SYNC_SOURCES_KEY,
+				stringifyErrorCodeList(update.sync_sources),
+			),
+		);
+	}
+	if (update.default_markup !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_DEFAULT_MARKUP_KEY,
+				String(Math.max(0.0001, Number(update.default_markup))),
+			),
+		);
+	}
+	if (update.currency !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_CURRENCY_KEY,
+				update.currency === "USD" ? "USD" : "CNY",
+			),
+		);
+	}
+	if (update.usd_cny_rate !== undefined) {
+		tasks.push(
+			upsertSetting(
+				db,
+				PRICING_USD_CNY_RATE_KEY,
+				String(Math.max(0.0001, Number(update.usd_cny_rate))),
+			),
+		);
+	}
+	if (tasks.length === 0) {
+		return;
+	}
+	await Promise.all(tasks);
+	clearPricingSnapshots();
+}
+
 export async function getBackupSettings(
 	db: D1Database,
 ): Promise<BackupSettings> {
@@ -1377,4 +1544,5 @@ export function resetSettingsSnapshots(): void {
 	modelCooldownSnapshot = null;
 	runtimeSettingsSnapshot = null;
 	backupSettingsSnapshot = null;
+	pricingSettingsSnapshot = null;
 }

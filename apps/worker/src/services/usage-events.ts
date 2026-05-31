@@ -6,6 +6,9 @@ import {
 } from "./channel-model-capabilities";
 import type { UsageInput } from "./usage";
 import { recordUsage } from "./usage";
+import { calculateUsageCharge } from "./pricing/calculator";
+import { listModelPrices } from "./pricing/repo";
+import { getPricingSettings } from "./settings";
 
 export type UsageEvent =
 	| {
@@ -52,7 +55,45 @@ export async function processUsageEvent(
 	event: UsageEvent,
 ): Promise<UsageEventProcessResult> {
 	if (event.type === "usage") {
-		await recordUsage(db, event.payload);
+		let payload = event.payload;
+		if (
+			payload.model &&
+			payload.promptTokens !== undefined &&
+			payload.completionTokens !== undefined &&
+			payload.chargeAmount === undefined
+		) {
+			const [prices, pricingSettings] = await Promise.all([
+				listModelPrices(db),
+				getPricingSettings(db),
+			]);
+			const charge = calculateUsageCharge({
+				model: payload.model,
+				prices,
+				markup: pricingSettings.default_markup,
+				defaultCurrency: pricingSettings.currency,
+				usage: {
+					totalTokens: payload.totalTokens ?? null,
+					promptTokens: payload.promptTokens ?? null,
+					completionTokens: payload.completionTokens ?? null,
+					cacheReadInputTokens: payload.cacheReadInputTokens ?? null,
+					cacheWriteInputTokens: payload.cacheWriteInputTokens ?? null,
+					uncachedInputTokens: payload.uncachedInputTokens ?? null,
+				},
+			});
+			payload = {
+				...payload,
+				billableInputTokens:
+					(payload.uncachedInputTokens ?? 0) +
+					(payload.cacheReadInputTokens ?? 0) +
+					(payload.cacheWriteInputTokens ?? 0),
+				chargeAmount: charge.amount,
+				chargeCurrency: charge.currency,
+				chargeStatus: charge.status,
+				chargeSource: charge.source,
+				chargeDetailJson: JSON.stringify(charge.detail),
+			};
+		}
+		await recordUsage(db, payload);
 		return { channelDisabled: false };
 	}
 	if (event.type === "capability_upsert") {

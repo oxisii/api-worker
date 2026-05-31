@@ -21,9 +21,17 @@ function createUsageDb() {
 									prompt_tokens: params[6],
 									completion_tokens: params[7],
 									cost: params[8],
-									latency_ms: params[9],
-									status: params[13],
-									created_at: params[23],
+									cache_read_input_tokens: params[9],
+									cache_write_input_tokens: params[10],
+									uncached_input_tokens: params[11],
+									billable_input_tokens: params[12],
+									charge_amount: params[13],
+									charge_currency: params[14],
+									charge_status: params[15],
+									charge_source: params[16],
+									latency_ms: params[18],
+									status: params[22],
+									created_at: params[32],
 								});
 							}
 							if (sql.startsWith("UPDATE tokens SET quota_used")) {
@@ -63,5 +71,47 @@ describe("usage recording", () => {
 			status: "warn",
 		});
 		expect(getQuotaUpdate()).toBeNull();
+	});
+
+	it("记录缓存 token 与下游计费字段", async () => {
+		const { db, rows, getQuotaUpdate } = createUsageDb();
+
+		await recordUsage(db as never, {
+			tokenId: "tok_1",
+			channelId: "ch_1",
+			model: "gpt-4o-mini",
+			requestPath: "/v1/chat/completions",
+			totalTokens: 4000,
+			promptTokens: 3000,
+			completionTokens: 1000,
+			cacheReadInputTokens: 500,
+			cacheWriteInputTokens: 100,
+			uncachedInputTokens: 2400,
+			billableInputTokens: 2500,
+			chargeAmount: 0.0843,
+			chargeCurrency: "USD",
+			chargeStatus: "ok",
+			chargeSource: "manual",
+			chargeDetailJson: '{"price_id":"manual-exact"}',
+			status: "ok",
+		});
+
+		expect(rows[0]).toMatchObject({
+			total_tokens: 4000,
+			prompt_tokens: 3000,
+			completion_tokens: 1000,
+			cache_read_input_tokens: 500,
+			cache_write_input_tokens: 100,
+			uncached_input_tokens: 2400,
+			billable_input_tokens: 2500,
+			charge_amount: 0.0843,
+			charge_currency: "USD",
+			charge_status: "ok",
+			charge_source: "manual",
+		});
+		expect(getQuotaUpdate()).toEqual({
+			totalTokens: 4000,
+			tokenId: "tok_1",
+		});
 	});
 });

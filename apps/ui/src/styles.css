@@ -203,6 +203,12 @@ body {
 	}
 }
 
+@media (min-width: 1280px) {
+	.app-grid--kpi {
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+	}
+}
+
 .app-surface {
 	background: linear-gradient(
 		170deg,
@@ -721,6 +727,63 @@ body {
 
 .app-table tr:hover {
 	background: rgba(10, 132, 255, 0.07);
+}
+
+.app-pricing-edit-cell {
+	display: grid;
+	min-width: 118px;
+	gap: 6px;
+	align-items: center;
+}
+
+.app-pricing-edit-cell--stacked {
+	min-width: 152px;
+}
+
+.app-pricing-edit-cell__row {
+	display: grid;
+	grid-template-columns: 18px minmax(118px, 1fr);
+	align-items: center;
+	gap: 6px;
+	min-height: 32px;
+}
+
+.app-pricing-edit-cell__prefix {
+	color: var(--app-ink-muted);
+	font-size: 11px;
+}
+
+.app-pricing-edit-cell__display {
+	display: inline-flex;
+	align-items: center;
+	min-height: 32px;
+	white-space: nowrap;
+}
+
+.app-pricing-edit-cell__input {
+	width: 118px;
+	min-width: 118px;
+	padding: 6px 9px;
+	border-radius: 12px;
+}
+
+.app-pricing-edit-cell__display[hidden],
+.app-pricing-edit-cell__input[hidden],
+.app-pricing-action-slot > [hidden] {
+	display: none;
+}
+
+.app-pricing-actions {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(54px, 1fr));
+	gap: 8px;
+	min-width: 186px;
+	align-items: center;
+}
+
+.app-pricing-action-slot {
+	display: inline-flex;
+	min-width: 54px;
 }
 
 .app-focus:focus-visible {

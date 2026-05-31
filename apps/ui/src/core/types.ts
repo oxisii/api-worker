@@ -197,6 +197,15 @@ export type UsageLog = {
 	total_tokens: number | null;
 	prompt_tokens?: number | null;
 	completion_tokens?: number | null;
+	cache_read_input_tokens?: number | null;
+	cache_write_input_tokens?: number | null;
+	uncached_input_tokens?: number | null;
+	billable_input_tokens?: number | null;
+	charge_amount?: number | null;
+	charge_currency?: string | null;
+	charge_status?: string | null;
+	charge_source?: string | null;
+	charge_detail_json?: string | null;
 	latency_ms: number | null;
 	first_token_latency_ms?: number | null;
 	stream?: boolean | number | null;
@@ -235,11 +244,35 @@ export type DashboardData = {
 		avg_latency: number;
 		total_errors: number;
 	};
+	chargeByCurrency?: Array<{
+		currency: string;
+		amount: number;
+	}>;
 	interval: "day" | "week" | "month";
-	trend: Array<{ bucket: string; requests: number; tokens: number }>;
-	byModel: Array<{ model: string; requests: number; tokens: number }>;
-	byChannel: Array<{ channel_name: string; requests: number; tokens: number }>;
-	byToken: Array<{ token_name: string; requests: number; tokens: number }>;
+	trend: Array<{
+		bucket: string;
+		requests: number;
+		tokens: number;
+		charge: number;
+	}>;
+	byModel: Array<{
+		model: string;
+		requests: number;
+		tokens: number;
+		charge: number;
+	}>;
+	byChannel: Array<{
+		channel_name: string;
+		requests: number;
+		tokens: number;
+		charge: number;
+	}>;
+	byToken: Array<{
+		token_name: string;
+		requests: number;
+		tokens: number;
+		charge: number;
+	}>;
 };
 
 export type DashboardRangePreset =
@@ -277,6 +310,69 @@ export type Settings = {
 	channel_disable_error_code_minutes?: number;
 	runtime_settings?: RuntimeProxySettings;
 	runtime_config?: RuntimeProxyConfig;
+	pricing_settings?: PricingSettings;
+};
+
+export type PricingCurrency = "USD" | "CNY";
+export type ModelPriceSource = "official_sync" | "manual";
+export type ModelPriceSyncStatus = "exact" | "estimated";
+
+export type ModelPrice = {
+	id: string;
+	provider: string;
+	model_pattern: string;
+	model_name: string;
+	currency: string;
+	input_price_per_1m: number;
+	cache_read_price_per_1m: number;
+	cache_write_price_per_1m: number;
+	output_price_per_1m: number;
+	source: ModelPriceSource;
+	source_url: string | null;
+	sync_status?: ModelPriceSyncStatus | null;
+	enabled: number;
+	updated_at: string;
+};
+
+export type ModelPriceInput = {
+	provider: string;
+	model_pattern: string;
+	model_name?: string;
+	currency: string;
+	input_price_per_1m: number;
+	cache_read_price_per_1m: number;
+	cache_write_price_per_1m: number;
+	output_price_per_1m: number;
+	source?: ModelPriceSource;
+	source_url?: string | null;
+	sync_status?: ModelPriceSyncStatus | null;
+	enabled?: boolean | number;
+};
+
+export type PricingSyncItem = {
+	source: string;
+	ok: boolean;
+	count: number;
+	exact_count: number;
+	estimated_count: number;
+	message: string;
+};
+
+export type PricingSyncResult = {
+	ok: boolean;
+	runs_at: string;
+	currency: PricingCurrency;
+	usd_cny_rate: number;
+	items: PricingSyncItem[];
+};
+
+export type PricingSettings = {
+	sync_enabled: boolean;
+	sync_schedule_time: string;
+	sync_sources: string[];
+	default_markup: number;
+	currency: PricingCurrency;
+	usd_cny_rate: number;
 };
 
 export type BackupSyncMode = "push" | "pull" | "two_way";
@@ -406,6 +502,7 @@ export type TabId =
 	| "dashboard"
 	| "channels"
 	| "models"
+	| "pricing"
 	| "tokens"
 	| "usage"
 	| "settings";
@@ -474,6 +571,12 @@ export type SettingsForm = {
 	site_task_concurrency: string;
 	site_task_timeout_ms: string;
 	site_task_fallback_enabled: boolean;
+	pricing_sync_enabled: boolean;
+	pricing_sync_schedule_time: string;
+	pricing_sync_sources: string[];
+	pricing_default_markup: string;
+	pricing_currency: PricingCurrency;
+	pricing_usd_cny_rate: string;
 };
 
 export type TokenForm = {

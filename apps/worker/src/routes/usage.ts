@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
 import { getRetentionDays } from "../services/settings";
-import { pruneUsageLogs } from "../services/usage";
+import { scheduleUsageLogPrune } from "../services/usage";
 
 const usage = new Hono<AppEnv>();
 
@@ -87,7 +87,7 @@ usage.get("/error-codes", async (c) => {
 	const db = c.env.DB;
 	const limit = normalizeErrorCodeLimit(c.req.query("limit"));
 	const retention = await getRetentionDays(db);
-	await pruneUsageLogs(db, retention);
+	scheduleUsageLogPrune(db, retention);
 
 	const rows = await db
 		.prepare(
@@ -219,7 +219,7 @@ usage.get("/", async (c) => {
 	const whereSql = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
 
 	const retention = await getRetentionDays(db);
-	await pruneUsageLogs(db, retention);
+	scheduleUsageLogPrune(db, retention);
 
 	const countRow = await db
 		.prepare(`SELECT COUNT(*) AS total FROM usage_logs ${whereSql}`)

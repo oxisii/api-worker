@@ -14,6 +14,7 @@ export const tabs: TabItem[] = [
 	{ id: "dashboard", label: "数据面板" },
 	{ id: "channels", label: "站点管理" },
 	{ id: "models", label: "模型广场" },
+	{ id: "pricing", label: "价格中心" },
 	{ id: "tokens", label: "令牌管理" },
 	{ id: "usage", label: "使用日志" },
 	{ id: "settings", label: "系统设置" },
@@ -100,6 +101,20 @@ export const initialSettingsForm: SettingsForm = {
 	site_task_concurrency: "4",
 	site_task_timeout_ms: "12000",
 	site_task_fallback_enabled: true,
+	pricing_sync_enabled: false,
+	pricing_sync_schedule_time: "04:40",
+	pricing_sync_sources: [
+		"openai",
+		"anthropic",
+		"gemini",
+		"deepseek",
+		"qwen",
+		"moonshot",
+		"zhipu",
+	],
+	pricing_default_markup: "1",
+	pricing_currency: "CNY",
+	pricing_usd_cny_rate: "7.2",
 };
 
 export const initialBackupSettings: BackupSettings = {

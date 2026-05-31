@@ -10,6 +10,15 @@ export type UsageInput = {
 	promptTokens?: number | null;
 	completionTokens?: number | null;
 	cost?: number | null;
+	cacheReadInputTokens?: number | null;
+	cacheWriteInputTokens?: number | null;
+	uncachedInputTokens?: number | null;
+	billableInputTokens?: number | null;
+	chargeAmount?: number | null;
+	chargeCurrency?: string | null;
+	chargeStatus?: string | null;
+	chargeSource?: string | null;
+	chargeDetailJson?: string | null;
 	latencyMs?: number | null;
 	firstTokenLatencyMs?: number | null;
 	stream?: boolean | number | null;
@@ -29,6 +38,7 @@ export type UsageInput = {
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 let lastPruneAt = 0;
 let lastPruneRetention: number | null = null;
+let pruneInFlight: Promise<void> | null = null;
 
 /**
  * Inserts a usage record and updates token quota.
@@ -53,7 +63,7 @@ export async function recordUsage(
 			: String(input.reasoningEffort);
 	await db
 		.prepare(
-			"INSERT INTO usage_logs (id, token_id, channel_id, model, request_path, total_tokens, prompt_tokens, completion_tokens, cost, latency_ms, first_token_latency_ms, stream, reasoning_effort, status, upstream_status, error_code, error_message, failure_stage, failure_reason, usage_source, error_meta_json, call_token_id, call_token_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO usage_logs (id, token_id, channel_id, model, request_path, total_tokens, prompt_tokens, completion_tokens, cost, cache_read_input_tokens, cache_write_input_tokens, uncached_input_tokens, billable_input_tokens, charge_amount, charge_currency, charge_status, charge_source, charge_detail_json, latency_ms, first_token_latency_ms, stream, reasoning_effort, status, upstream_status, error_code, error_message, failure_stage, failure_reason, usage_source, error_meta_json, call_token_id, call_token_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		)
 		.bind(
 			id,
@@ -65,6 +75,15 @@ export async function recordUsage(
 			input.promptTokens ?? null,
 			input.completionTokens ?? null,
 			input.cost ?? 0,
+			input.cacheReadInputTokens ?? null,
+			input.cacheWriteInputTokens ?? null,
+			input.uncachedInputTokens ?? null,
+			input.billableInputTokens ?? null,
+			input.chargeAmount ?? null,
+			input.chargeCurrency ?? null,
+			input.chargeStatus ?? null,
+			input.chargeSource ?? null,
+			input.chargeDetailJson ?? null,
 			input.latencyMs ?? 0,
 			input.firstTokenLatencyMs ?? null,
 			streamValue,
@@ -115,4 +134,26 @@ export async function pruneUsageLogs(
 		.prepare("DELETE FROM usage_logs WHERE created_at < ?")
 		.bind(cutoff.toISOString())
 		.run();
+}
+
+/**
+ * Starts retention cleanup without making read endpoints wait on a D1 write lock.
+ */
+export function scheduleUsageLogPrune(
+	db: D1Database,
+	retentionDays: number,
+): void {
+	if (pruneInFlight) {
+		return;
+	}
+	pruneInFlight = pruneUsageLogs(db, retentionDays)
+		.catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			if (!/SQLITE_BUSY|database is locked/i.test(message)) {
+				console.error("[usage:prune]", error);
+			}
+		})
+		.finally(() => {
+			pruneInFlight = null;
+		});
 }

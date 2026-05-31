@@ -10,6 +10,7 @@ import {
 } from "../utils/time";
 import { invalidateSelectionHotCache } from "./hot-kv";
 import { executeBackupSync } from "./backup-sync";
+import { fetchUsdCnyRate } from "./pricing/exchange-rate";
 import {
 	getBackupScheduleEnabled,
 	getBackupScheduleTime,
@@ -18,7 +19,10 @@ import {
 	getChannelRecoveryProbeEnabled,
 	getChannelRecoveryProbeScheduleTime,
 	getCheckinScheduleTime,
+	getPricingSettings,
+	setPricingSettings,
 } from "./settings";
+import { syncModelPrices } from "./pricing/sync";
 import {
 	refreshActiveChannelsViaWorker,
 	recoverDisabledChannelsViaWorker,
@@ -32,6 +36,7 @@ const LAST_RUN_DATE_KEY = "last_run_date";
 const CHANNEL_REFRESH_LAST_RUN_DATE_KEY = "channel_refresh_last_run_date";
 const CHANNEL_RECOVERY_LAST_RUN_DATE_KEY = "channel_recovery_last_run_date";
 const BACKUP_LAST_RUN_DATE_KEY = "backup_last_run_date";
+const PRICING_SYNC_LAST_RUN_DATE_KEY = "pricing_sync_last_run_date";
 const INTERNAL_IMMEDIATE_RESCHEDULE_DELAY_MS = 1000;
 
 export const getCheckinSchedulerStub = (namespace: DurableObjectNamespace) =>
@@ -76,6 +81,7 @@ type RescheduleResult = {
 	channelRefreshNextRunAt: string | null;
 	channelRecoveryNextRunAt: string | null;
 	backupNextRunAt: string | null;
+	pricingSyncNextRunAt: string | null;
 };
 
 export class CheckinScheduler {
@@ -116,6 +122,10 @@ export class CheckinScheduler {
 			const backupLastRunDate =
 				(await this.state.storage.get<string>(BACKUP_LAST_RUN_DATE_KEY)) ??
 				null;
+			const pricingSyncLastRunDate =
+				(await this.state.storage.get<string>(
+					PRICING_SYNC_LAST_RUN_DATE_KEY,
+				)) ?? null;
 			return new Response(
 				JSON.stringify({
 					ok: true,
@@ -124,6 +134,7 @@ export class CheckinScheduler {
 					channel_refresh_last_run_date: channelRefreshLastRunDate,
 					channel_recovery_last_run_date: channelRecoveryLastRunDate,
 					backup_last_run_date: backupLastRunDate,
+					pricing_sync_last_run_date: pricingSyncLastRunDate,
 				}),
 				{ headers: { "Content-Type": "application/json" } },
 			);
@@ -253,6 +264,42 @@ export class CheckinScheduler {
 				}
 			}
 		}
+		const pricingSettings = await getPricingSettings(this.env.DB);
+		if (pricingSettings.sync_enabled) {
+			const pricingSyncLastRunDate =
+				(await this.state.storage.get<string>(
+					PRICING_SYNC_LAST_RUN_DATE_KEY,
+				)) ?? null;
+			if (
+				shouldRunCheckin(
+					now,
+					pricingSettings.sync_schedule_time,
+					pricingSyncLastRunDate,
+				)
+			) {
+				try {
+					let usdCnyRate = pricingSettings.usd_cny_rate;
+					try {
+						usdCnyRate = await fetchUsdCnyRate();
+						await setPricingSettings(this.env.DB, { usd_cny_rate: usdCnyRate });
+					} catch {
+						usdCnyRate = pricingSettings.usd_cny_rate;
+					}
+					await syncModelPrices(this.env.DB, {
+						sources: pricingSettings.sync_sources,
+						targetCurrency: pricingSettings.currency,
+						usdCnyRate,
+					});
+				} catch {
+					// Keep scheduler alive if a pricing page cannot be parsed.
+				} finally {
+					await this.state.storage.put(
+						PRICING_SYNC_LAST_RUN_DATE_KEY,
+						beijingDateString(now),
+					);
+				}
+			}
+		}
 		await this.reschedule(now);
 	}
 
@@ -272,11 +319,13 @@ export class CheckinScheduler {
 			await getChannelRecoveryProbeScheduleTime(this.env.DB);
 		const backupEnabled = await getBackupScheduleEnabled(this.env.DB);
 		const backupScheduleTime = await getBackupScheduleTime(this.env.DB);
+		const pricingSettings = await getPricingSettings(this.env.DB);
 		if (reset) {
 			await this.state.storage.delete(LAST_RUN_DATE_KEY);
 			await this.state.storage.delete(CHANNEL_REFRESH_LAST_RUN_DATE_KEY);
 			await this.state.storage.delete(CHANNEL_RECOVERY_LAST_RUN_DATE_KEY);
 			await this.state.storage.delete(BACKUP_LAST_RUN_DATE_KEY);
+			await this.state.storage.delete(PRICING_SYNC_LAST_RUN_DATE_KEY);
 		}
 		const checkinNextRunAt = computeNextAlarmAt(
 			now,
@@ -292,11 +341,15 @@ export class CheckinScheduler {
 		const backupNextRunAt = backupEnabled
 			? computeNextAlarmAt(now, backupScheduleTime, reset)
 			: null;
+		const pricingSyncNextRunAt = pricingSettings.sync_enabled
+			? computeNextAlarmAt(now, pricingSettings.sync_schedule_time, reset)
+			: null;
 		const nextCandidates = [
 			checkinNextRunAt,
 			channelRefreshNextRunAt,
 			channelRecoveryNextRunAt,
 			backupNextRunAt,
+			pricingSyncNextRunAt,
 		].filter((item): item is Date => Boolean(item));
 		let nextRun = checkinNextRunAt;
 		for (const candidate of nextCandidates) {
@@ -315,6 +368,9 @@ export class CheckinScheduler {
 				? channelRecoveryNextRunAt.toISOString()
 				: null,
 			backupNextRunAt: backupNextRunAt ? backupNextRunAt.toISOString() : null,
+			pricingSyncNextRunAt: pricingSyncNextRunAt
+				? pricingSyncNextRunAt.toISOString()
+				: null,
 		};
 	}
 }
