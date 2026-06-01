@@ -188,6 +188,9 @@ export type Token = {
 export type UsageLog = {
 	id: string;
 	model: string | null;
+	canonical_model?: string | null;
+	request_model_raw?: string | null;
+	upstream_model_raw?: string | null;
 	channel_id: string | null;
 	channel_name?: string | null;
 	token_id: string | null;
@@ -482,6 +485,7 @@ export type ModelStatusUpdate = ModelChannel["status"] | "auto";
 
 export type ModelItem = {
 	id: string;
+	raw_ids?: string[];
 	counts?: {
 		enabled: number;
 		pending: number;
@@ -490,10 +494,75 @@ export type ModelItem = {
 	channels: ModelChannel[];
 };
 
+export type CanonicalModelAliasItem = {
+	alias: string;
+	provider_hint: string;
+	canonical_model: string;
+};
+
+export type CanonicalModelItem = {
+	canonical_model: string;
+	import_regex: string | null;
+	aliases: CanonicalModelAliasItem[];
+	created_at: string;
+	updated_at: string;
+};
+
+export type CanonicalModelInput = {
+	canonical_model: string;
+	import_regex?: string | null;
+	aliases?: string;
+};
+
+export type CanonicalModelSyncSource =
+	| "usage_request"
+	| "usage_upstream"
+	| "attempt_request"
+	| "attempt_upstream"
+	| "pricing"
+	| "channel_capability";
+
+export type CanonicalModelSyncImportedItem = {
+	alias: string;
+	canonical_model: string;
+	hits: number;
+	last_seen_at: string | null;
+	sources: CanonicalModelSyncSource[];
+};
+
+export type CanonicalModelSyncConflict = {
+	alias: string;
+	matched_canonical_models: string[];
+	existing_canonical_models: string[];
+	hits: number;
+	last_seen_at: string | null;
+	sources: CanonicalModelSyncSource[];
+	reason: "multi_match" | "existing_binding";
+};
+
+export type CanonicalModelSyncInvalidRule = {
+	canonical_model: string;
+	import_regex: string;
+	error: string;
+};
+
+export type CanonicalModelSyncResult = {
+	ok: boolean;
+	runs_at: string;
+	scanned: number;
+	imported: number;
+	already_bound: number;
+	unmatched: number;
+	conflicts: CanonicalModelSyncConflict[];
+	invalid_rules: CanonicalModelSyncInvalidRule[];
+	imported_items: CanonicalModelSyncImportedItem[];
+};
+
 export type AdminData = {
 	sites: Site[];
 	tokens: Token[];
 	models: ModelItem[];
+	canonicalModels: CanonicalModelItem[];
 	usage: UsageLog[];
 	dashboard: DashboardData | null;
 	settings: Settings | null;
@@ -503,6 +572,7 @@ export type TabId =
 	| "dashboard"
 	| "channels"
 	| "models"
+	| "canonicalModels"
 	| "pricing"
 	| "tokens"
 	| "usage"

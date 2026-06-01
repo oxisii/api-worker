@@ -732,6 +732,11 @@ const applyLocalWorkerMigrations = async (workerConfigPath) => {
 	}
 	await runOnce(
 		BUN_CMD,
+		["run", "scripts/repair-local-d1.mjs", workerConfigPath],
+		"repair local d1",
+	);
+	await runOnce(
+		BUN_CMD,
 		[
 			"x",
 			"wrangler",

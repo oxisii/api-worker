@@ -2,10 +2,15 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { nowIso } from "../utils/time";
 import type { ModelEntry } from "./channel-models";
 import { extractModelIds } from "./channel-models";
+import {
+	deriveCanonicalModel,
+	toCanonicalModelSet,
+} from "./model-normalization";
 
 export type CapabilityRow = {
 	channel_id: string;
 	model: string;
+	canonical_model?: string | null;
 	last_ok_at: number | null;
 	last_err_count?: number | null;
 	cooldown_count?: number | null;
@@ -14,6 +19,7 @@ export type CapabilityRow = {
 export type ChannelModelCooldownSummary = {
 	channel_id: string;
 	model: string;
+	canonical_model?: string | null;
 	last_ok_at: number | null;
 	last_err_at: number;
 	last_err_code: string | null;
@@ -121,7 +127,10 @@ export function buildCapabilityMap(
 ): Map<string, Set<string>> {
 	const map = new Map<string, Set<string>>();
 	for (const row of rows) {
-		if (!row.channel_id || !row.model) {
+		const capabilityModel = deriveCanonicalModel(
+			row.canonical_model ?? row.model,
+		);
+		if (!row.channel_id || !capabilityModel) {
 			continue;
 		}
 		const lastOk = Number(row.last_ok_at ?? 0);
@@ -129,7 +138,7 @@ export function buildCapabilityMap(
 			continue;
 		}
 		const set = map.get(row.channel_id) ?? new Set<string>();
-		set.add(row.model);
+		set.add(capabilityModel);
 		map.set(row.channel_id, set);
 	}
 	return map;
@@ -147,7 +156,7 @@ export async function listVerifiedModelsByChannel(
 		const placeholders = chunk.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
-				`SELECT channel_id, model, last_ok_at FROM channel_model_capabilities WHERE channel_id IN (${placeholders}) AND last_ok_at > 0`,
+				`SELECT channel_id, model, canonical_model, last_ok_at FROM channel_model_capabilities WHERE channel_id IN (${placeholders}) AND last_ok_at > 0`,
 			)
 			.bind(...chunk)
 			.all<CapabilityRow>();
@@ -188,7 +197,9 @@ export async function listModelsByChannelWithFallback(
 			map.set(channel.id, new Set(verifiedModels));
 			continue;
 		}
-		const declaredModels = extractModelIds(channel);
+		const declaredModels = Array.from(
+			toCanonicalModelSet(extractModelIds(channel)),
+		);
 		if (declaredModels.length > 0) {
 			map.set(channel.id, new Set(declaredModels));
 		}
@@ -226,7 +237,8 @@ export async function listCoolingDownChannelsForModel(
 	cooldownSeconds: number,
 	minErrorCount: number = 1,
 ): Promise<Set<string>> {
-	if (!model || channelIds.length === 0 || cooldownSeconds <= 0) {
+	const canonicalModel = deriveCanonicalModel(model);
+	if (!canonicalModel || channelIds.length === 0 || cooldownSeconds <= 0) {
 		return new Set();
 	}
 	const now = Math.floor(Date.now() / 1000);
@@ -241,9 +253,9 @@ export async function listCoolingDownChannelsForModel(
 		const placeholders = chunk.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
-				`SELECT channel_id, last_err_at, last_ok_at, last_err_count FROM channel_model_capabilities WHERE model = ? AND channel_id IN (${placeholders}) AND last_err_at IS NOT NULL AND last_err_at >= ?`,
+				`SELECT channel_id, last_err_at, last_ok_at, last_err_count FROM channel_model_capabilities WHERE canonical_model = ? AND channel_id IN (${placeholders}) AND last_err_at IS NOT NULL AND last_err_at >= ?`,
 			)
-			.bind(model, ...chunk, cutoff)
+			.bind(canonicalModel, ...chunk, cutoff)
 			.all<{
 				channel_id: string;
 				last_err_at: number | null;
@@ -278,6 +290,7 @@ export async function listCoolingDownModelEntriesByChannel(
 	const rows: Array<{
 		channel_id: string;
 		model: string;
+		canonical_model?: string | null;
 		last_ok_at: number | null;
 		last_err_at: number | null;
 		last_err_code: string | null;
@@ -288,7 +301,7 @@ export async function listCoolingDownModelEntriesByChannel(
 		const placeholders = chunk.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
-				`SELECT channel_id, model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count
+				`SELECT channel_id, model, canonical_model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count
 				 FROM channel_model_capabilities
 				 WHERE channel_id IN (${placeholders})
 				   AND last_err_at IS NOT NULL
@@ -326,6 +339,7 @@ export async function listCoolingDownModelEntriesByChannel(
 		const entry: ChannelModelCooldownSummary = {
 			channel_id: row.channel_id,
 			model: row.model,
+			canonical_model: row.canonical_model ?? deriveCanonicalModel(row.model),
 			last_ok_at: Number(row.last_ok_at ?? 0) || null,
 			last_err_at: lastErrAt,
 			last_err_code: row.last_err_code ?? null,
@@ -360,7 +374,8 @@ export async function recordChannelModelError(
 	options: RecordModelErrorOptions,
 	nowSeconds: number = Math.floor(Date.now() / 1000),
 ): Promise<RecordModelErrorResult> {
-	if (!model) {
+	const canonicalModel = deriveCanonicalModel(model);
+	if (!canonicalModel) {
 		return {
 			cooldownEntered: false,
 			cooldownCount: 0,
@@ -375,9 +390,9 @@ export async function recordChannelModelError(
 	const timestamp = nowIso();
 	const row = await db
 		.prepare(
-			"SELECT last_ok_at, last_err_at, last_err_count, cooldown_count FROM channel_model_capabilities WHERE channel_id = ? AND model = ?",
+			"SELECT last_ok_at, last_err_at, last_err_count, cooldown_count FROM channel_model_capabilities WHERE channel_id = ? AND canonical_model = ?",
 		)
-		.bind(channelId, model)
+		.bind(channelId, canonicalModel)
 		.first<{
 			last_ok_at: number | null;
 			last_err_at: number | null;
@@ -414,7 +429,7 @@ export async function recordChannelModelError(
 	if (row) {
 		await db
 			.prepare(
-				"UPDATE channel_model_capabilities SET last_err_at = ?, last_err_code = ?, last_err_count = ?, cooldown_count = ?, updated_at = ? WHERE channel_id = ? AND model = ?",
+				"UPDATE channel_model_capabilities SET last_err_at = ?, last_err_code = ?, last_err_count = ?, cooldown_count = ?, updated_at = ? WHERE channel_id = ? AND canonical_model = ?",
 			)
 			.bind(
 				nowSeconds,
@@ -423,17 +438,18 @@ export async function recordChannelModelError(
 				nextCooldownCount,
 				timestamp,
 				channelId,
-				model,
+				canonicalModel,
 			)
 			.run();
 	} else {
 		await db
 			.prepare(
-				"INSERT INTO channel_model_capabilities (channel_id, model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count, created_at, updated_at) VALUES (?, ?, 0, ?, ?, 1, ?, ?, ?)",
+				"INSERT INTO channel_model_capabilities (channel_id, model, canonical_model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, 1, ?, ?, ?)",
 			)
 			.bind(
 				channelId,
-				model,
+				canonicalModel,
+				canonicalModel,
 				nowSeconds,
 				errorCode,
 				nextCooldownCount,
@@ -457,13 +473,13 @@ export async function clearChannelModelCooldown(
 	if (!model) {
 		return false;
 	}
-	const normalizedModel = String(model).trim();
+	const normalizedModel = deriveCanonicalModel(model);
 	if (!normalizedModel) {
 		return false;
 	}
 	const result = await db
 		.prepare(
-			"UPDATE channel_model_capabilities SET last_err_at = NULL, last_err_code = NULL, last_err_count = 0, updated_at = ? WHERE channel_id = ? AND model = ?",
+			"UPDATE channel_model_capabilities SET last_err_at = NULL, last_err_code = NULL, last_err_count = 0, updated_at = ? WHERE channel_id = ? AND canonical_model = ?",
 		)
 		.bind(nowIso(), channelId, normalizedModel)
 		.run();
@@ -478,13 +494,13 @@ export async function deleteChannelModelCapability(
 	if (!model) {
 		return false;
 	}
-	const normalizedModel = String(model).trim();
+	const normalizedModel = deriveCanonicalModel(model);
 	if (!normalizedModel) {
 		return false;
 	}
 	const result = await db
 		.prepare(
-			"DELETE FROM channel_model_capabilities WHERE channel_id = ? AND model = ?",
+			"DELETE FROM channel_model_capabilities WHERE channel_id = ? AND canonical_model = ?",
 		)
 		.bind(channelId, normalizedModel)
 		.run();
@@ -596,11 +612,12 @@ export async function upsertChannelModelCapabilities(
 		return;
 	}
 	const timestamp = nowIso();
+	const canonicalModels = Array.from(toCanonicalModelSet(models));
 	const stmt = db.prepare(
-		"INSERT INTO channel_model_capabilities (channel_id, model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, 0, 0, ?, ?) ON CONFLICT(channel_id, model) DO UPDATE SET last_ok_at = excluded.last_ok_at, last_err_at = NULL, last_err_code = NULL, last_err_count = 0, cooldown_count = 0, updated_at = excluded.updated_at",
+		"INSERT INTO channel_model_capabilities (channel_id, model, canonical_model, last_ok_at, last_err_at, last_err_code, last_err_count, cooldown_count, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, 0, 0, ?, ?) ON CONFLICT(channel_id, model) DO UPDATE SET canonical_model = excluded.canonical_model, last_ok_at = excluded.last_ok_at, last_err_at = NULL, last_err_code = NULL, last_err_count = 0, cooldown_count = 0, updated_at = excluded.updated_at",
 	);
-	const statements = models.map((model) =>
-		stmt.bind(channelId, model, nowSeconds, timestamp, timestamp),
+	const statements = canonicalModels.map((model) =>
+		stmt.bind(channelId, model, model, nowSeconds, timestamp, timestamp),
 	);
 	for (let index = 0; index < statements.length; index += MAX_SQL_BINDINGS) {
 		await db.batch(statements.slice(index, index + MAX_SQL_BINDINGS));
@@ -609,11 +626,11 @@ export async function upsertChannelModelCapabilities(
 	// Clean up stale models that are no longer supported by the upstream channel
 	const existingRows = await db
 		.prepare(
-			"SELECT model FROM channel_model_capabilities WHERE channel_id = ?",
+			"SELECT canonical_model as model FROM channel_model_capabilities WHERE channel_id = ?",
 		)
 		.bind(channelId)
 		.all<{ model: string }>();
-	const nextModelSet = new Set(models);
+	const nextModelSet = new Set(canonicalModels);
 	const staleModels = (existingRows.results ?? [])
 		.map((row) => row.model)
 		.filter((model) => !nextModelSet.has(model));

@@ -11,6 +11,7 @@ import {
 } from "../services/pricing/repo";
 import { getPricingSettings, setPricingSettings } from "../services/settings";
 import { PRICING_SOURCE_URLS, syncModelPrices } from "../services/pricing/sync";
+import { deriveCanonicalModel } from "../services/model-normalization";
 import type { ModelPriceSource } from "../services/pricing/types";
 import { jsonError } from "../utils/http";
 
@@ -58,6 +59,7 @@ pricing.post("/models", async (c) => {
 	const pricingSettings = await getPricingSettings(c.env.DB);
 	const price = await upsertModelPrice(c.env.DB, {
 		provider: String(body.provider ?? "custom").trim() || "custom",
+		canonical_model: deriveCanonicalModel(body.model_pattern),
 		model_pattern: String(body.model_pattern).trim(),
 		model_name: String(body.model_name ?? body.model_pattern).trim(),
 		currency: pricingSettings.currency,
@@ -92,6 +94,9 @@ pricing.patch("/models/:id", async (c) => {
 	const nextPrice = {
 		id,
 		provider: String(body.provider ?? existing.provider).trim() || "custom",
+		canonical_model: deriveCanonicalModel(
+			String(body.model_pattern ?? existing.model_pattern).trim(),
+		),
 		model_pattern: String(body.model_pattern ?? existing.model_pattern).trim(),
 		model_name: String(
 			body.model_name ?? existing.model_name ?? existing.model_pattern,

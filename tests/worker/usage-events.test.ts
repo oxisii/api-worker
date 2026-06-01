@@ -39,15 +39,15 @@ function createUsageEventDb() {
 					}
 					return { results: [] };
 				},
-				async run() {
-					if (sql.startsWith("INSERT INTO usage_logs")) {
-						usageRows.push({
-							billable_input_tokens: params[12],
-							charge_amount: params[13],
-							charge_status: params[15],
-							charge_source: params[16],
-						});
-					}
+							async run() {
+								if (sql.startsWith("INSERT INTO usage_logs")) {
+									usageRows.push({
+										billable_input_tokens: params[15],
+										charge_amount: params[16],
+										charge_status: params[18],
+										charge_source: params[19],
+									});
+								}
 					return { success: true };
 				},
 			});

@@ -4,6 +4,9 @@
 
 ### 变更
 
+- **[worker/proxy/models/admin-ui]**: 引入统一模型三字段链路，新增 `canonical_model / request_model_raw / upstream_model_raw`，统一请求匹配、计费归因、模型广场别名聚合与使用日志展示口径 — by Codex
+  - 方案: [202606011240_unified-model-normalization-registry](plan/202606011240_unified-model-normalization-registry/)
+
 - **[channels/sites/admin-ui/settings]**: 统一站点验证与恢复评估语义，验证结果改为阶段化输出并接入真实 provider-aware 服务验证链路 — by openclaw
   - 方案: [202604042102_site-verification-system](plan/202604042102_site-verification-system/)
   - 决策: site-verification-system#D001(统一站点验证语义并复用真实代理链路)
@@ -21,6 +24,10 @@
   - 决策: startup-runtime-hardening#D001(Windows 自启动改用计划任务), startup-runtime-hardening#D002(运行时配置与日志统一收敛到 .dev)
 
 ### 修复
+
+- **[admin-ui/settings]**: 修复价格中心无法在页内切换 USD/CNY，以及最近同步结果无法像站点管理一样查看逐来源成功/失败明细；同时避免价格页刷新覆盖系统设置未保存草稿 — by lsy
+  - 方案: [202606011100_pricing-center-currency-sync-report](plan/202606011100_pricing-center-currency-sync-report/)
+  - 决策: pricing-center-currency-sync-report#D001(复用全局价格币种而不是新增页面私有货币状态)
 
 - **[proxy/sites/usage]**: 收紧成功判定与恢复探针语义；`200` 的 HTML 假成功站点不再被恢复，客户端未收包时使用日志改记 `client_disconnected`，非流式缺失 usage 也不再默认为绿色成功 — by lsy
   - 方案: [202604151107_fix-proxy-false-success-and-site-recovery](plan/202604151107_fix-proxy-false-success-and-site-recovery/)

@@ -4,6 +4,7 @@ import {
 	recordChannelModelError,
 	upsertChannelModelCapabilities,
 } from "./channel-model-capabilities";
+import { resolveCanonicalModel } from "./model-normalization";
 import type { UsageInput } from "./usage";
 import { recordUsage } from "./usage";
 import { calculateUsageCharge } from "./pricing/calculator";
@@ -56,8 +57,29 @@ export async function processUsageEvent(
 ): Promise<UsageEventProcessResult> {
 	if (event.type === "usage") {
 		let payload = event.payload;
+		const resolvedCanonical = await resolveCanonicalModel(
+			db,
+			payload.canonicalModel ??
+				payload.model ??
+				payload.requestModelRaw ??
+				null,
+		);
+		payload = {
+			...payload,
+			canonicalModel: resolvedCanonical.canonicalModel,
+			requestModelRaw:
+				payload.requestModelRaw ??
+				payload.model ??
+				payload.canonicalModel ??
+				null,
+			upstreamModelRaw:
+				payload.upstreamModelRaw ??
+				payload.model ??
+				payload.requestModelRaw ??
+				null,
+		};
 		if (
-			payload.model &&
+			(payload.canonicalModel ?? payload.model) &&
 			payload.promptTokens !== undefined &&
 			payload.completionTokens !== undefined &&
 			payload.chargeAmount === undefined
@@ -67,7 +89,7 @@ export async function processUsageEvent(
 				getPricingSettings(db),
 			]);
 			const charge = calculateUsageCharge({
-				model: payload.model,
+				model: payload.canonicalModel ?? payload.model,
 				prices,
 				markup: pricingSettings.default_markup,
 				defaultCurrency: pricingSettings.currency,
@@ -108,11 +130,15 @@ export async function processUsageEvent(
 	}
 	if (event.type === "model_error") {
 		const nowSeconds = resolveNowSeconds(event.payload.nowSeconds);
-		if (event.payload.model && event.payload.cooldownSeconds > 0) {
+		const resolvedCanonical = await resolveCanonicalModel(
+			db,
+			event.payload.model,
+		);
+		if (resolvedCanonical.canonicalModel && event.payload.cooldownSeconds > 0) {
 			await recordChannelModelError(
 				db,
 				event.payload.channelId,
-				event.payload.model,
+				resolvedCanonical.canonicalModel,
 				event.payload.errorCode,
 				{
 					cooldownSeconds: event.payload.cooldownSeconds,
@@ -126,7 +152,28 @@ export async function processUsageEvent(
 		};
 	}
 	if (event.type === "attempt_log") {
-		await insertAttemptEvent(db, event.payload);
+		const resolvedCanonical = await resolveCanonicalModel(
+			db,
+			event.payload.canonicalModel ??
+				event.payload.model ??
+				event.payload.requestModelRaw ??
+				event.payload.upstreamModelRaw ??
+				null,
+		);
+		await insertAttemptEvent(db, {
+			...event.payload,
+			canonicalModel: resolvedCanonical.canonicalModel,
+			requestModelRaw:
+				event.payload.requestModelRaw ??
+				event.payload.model ??
+				event.payload.canonicalModel ??
+				null,
+			upstreamModelRaw:
+				event.payload.upstreamModelRaw ??
+				event.payload.model ??
+				event.payload.requestModelRaw ??
+				null,
+		});
 	}
 	return { channelDisabled: false };
 }

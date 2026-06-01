@@ -55,7 +55,9 @@ export const getPriceSourceLabel = (
 	return "未知来源";
 };
 
-export const getPricingSyncMessageLabel = (message: string | null | undefined) => {
+export const getPricingSyncMessageLabel = (
+	message: string | null | undefined,
+) => {
 	switch (message) {
 		case "synced":
 			return "官方同步";
@@ -74,7 +76,7 @@ export const getPricingSyncMessageLabel = (message: string | null | undefined) =
 
 export const formatPricingSyncItemLabel = (item: PricingSyncItem) => {
 	if (!item.ok || item.count <= 0) {
-		return `${item.source}：失败 ${getPricingSyncMessageLabel(item.message)}`;
+		return `${item.source}：失败 · ${getPricingSyncMessageLabel(item.message)}`;
 	}
 	return `${item.source}：成功 ${item.count} 条（精确 ${
 		item.exact_count ?? 0

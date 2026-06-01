@@ -26,8 +26,8 @@ describe("site and model display behavior", () => {
 		);
 
 		expect(rows).toEqual([
-			{ model: "gpt-4.1", channels: ["渠道 A"] },
-			{ model: "claude-sonnet", channels: ["渠道 A"] },
+			{ model: "gpt-4.1", channels: ["渠道 A"], rawIds: [] },
+			{ model: "claude-sonnet", channels: ["渠道 A"], rawIds: [] },
 		]);
 		expect(rows.some((row) => "status" in row)).toBe(false);
 		expect(rows.some((row) => "counts" in row)).toBe(false);

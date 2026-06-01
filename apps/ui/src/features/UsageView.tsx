@@ -138,6 +138,25 @@ const formatChannelLabel = (log: UsageLog): string => {
 	return "-";
 };
 
+const buildModelDisplay = (
+	log: UsageLog,
+): { primary: string; detail: string[] } => {
+	const primary =
+		log.canonical_model ?? log.model ?? log.request_model_raw ?? "-";
+	const detail: string[] = [];
+	if (log.request_model_raw && log.request_model_raw !== primary) {
+		detail.push(`请求: ${log.request_model_raw}`);
+	}
+	if (
+		log.upstream_model_raw &&
+		log.upstream_model_raw !== primary &&
+		log.upstream_model_raw !== log.request_model_raw
+	) {
+		detail.push(`上游: ${log.upstream_model_raw}`);
+	}
+	return { primary, detail };
+};
+
 /**
  * Renders the usage logs view.
  *
@@ -285,6 +304,9 @@ export const UsageView = ({
 	);
 	const callTokenLabel =
 		activeErrorLog?.call_token_name ?? activeErrorLog?.call_token_id ?? "-";
+	const activeModelDisplay = activeErrorLog
+		? buildModelDisplay(activeErrorLog)
+		: { primary: "-", detail: [] };
 
 	useEffect(() => {
 		if (!activeErrorLog) {
@@ -583,6 +605,7 @@ export const UsageView = ({
 								) : (
 									usage.map((log) => {
 										const statusDetail = buildUsageStatusDetail(log);
+										const modelDisplay = buildModelDisplay(log);
 										return (
 											<tr key={log.id}>
 												{visibleColumnSet.has("time") && (
@@ -592,7 +615,14 @@ export const UsageView = ({
 												)}
 												{visibleColumnSet.has("model") && (
 													<td class="px-3 py-2.5 text-left text-xs text-[color:var(--app-ink)] sm:text-sm">
-														{log.model ?? "-"}
+														<div class="space-y-1">
+															<div>{modelDisplay.primary}</div>
+															{modelDisplay.detail.length > 0 ? (
+																<div class="text-[11px] text-[color:var(--app-ink-muted)]">
+																	{modelDisplay.detail.join(" | ")}
+																</div>
+															) : null}
+														</div>
 													</td>
 												)}
 												{visibleColumnSet.has("channel") && (
@@ -764,7 +794,17 @@ export const UsageView = ({
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-[color:var(--app-ink-muted)]">模型</span>
-									<span>{activeErrorLog.model ?? "-"}</span>
+									<div class="text-right">
+										<div>{activeModelDisplay.primary}</div>
+										{activeModelDisplay.detail.map((item) => (
+											<div
+												class="text-[11px] text-[color:var(--app-ink-muted)]"
+												key={item}
+											>
+												{item}
+											</div>
+										))}
+									</div>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-[color:var(--app-ink-muted)]">渠道</span>

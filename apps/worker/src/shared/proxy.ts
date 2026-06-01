@@ -45,6 +45,7 @@ import {
 	writeHotJson,
 } from "../../../worker/src/services/hot-kv";
 import { shouldCooldown } from "../../../worker/src/services/model-cooldown";
+import { resolveCanonicalModel } from "../../../worker/src/services/model-normalization";
 import {
 	buildProxyErrorCodeSet,
 	resolveProxyErrorDecision,
@@ -467,7 +468,14 @@ proxy.all("/*", tokenAuth, async (c) => {
 		requestPath,
 		modelProbeBody,
 	);
-	const downstreamModel = parsedDownstreamModel ?? rawRequestModel;
+	const requestModelRaw = parsedDownstreamModel ?? rawRequestModel;
+	const requestModelResolution = await resolveCanonicalModel(
+		db,
+		requestModelRaw,
+		downstreamProvider,
+	);
+	const canonicalModel = requestModelResolution.canonicalModel;
+	const downstreamModel = canonicalModel ?? requestModelRaw;
 	const inferredStream =
 		shouldSkipHeavyBodyParsing && requestText
 			? detectStreamFlagFromRawJsonRequest(requestText)
@@ -552,7 +560,10 @@ proxy.all("/*", tokenAuth, async (c) => {
 			payload: {
 				tokenId: tokenRecord.id,
 				channelId: null,
-				model: downstreamModel,
+				model: canonicalModel ?? requestModelRaw,
+				canonicalModel,
+				requestModelRaw,
+				upstreamModelRaw: null,
 				requestPath,
 				totalTokens: 0,
 				latencyMs,
@@ -586,13 +597,24 @@ proxy.all("/*", tokenAuth, async (c) => {
 		errorMetaJson?: string | null;
 		tokenId?: string | null;
 		tokenName?: string | null;
+		canonicalModel?: string | null;
+		requestModelRaw?: string | null;
+		upstreamModelRaw?: string | null;
 	}) => {
 		scheduleUsageEvent({
 			type: "usage",
 			payload: {
 				tokenId: tokenRecord.id,
 				channelId: options.channelId,
-				model: downstreamModel,
+				model:
+					options.canonicalModel ??
+					canonicalModel ??
+					options.upstreamModelRaw ??
+					requestModelRaw,
+				canonicalModel:
+					options.canonicalModel ?? canonicalModel ?? downstreamModel ?? null,
+				requestModelRaw: options.requestModelRaw ?? requestModelRaw ?? null,
+				upstreamModelRaw: options.upstreamModelRaw ?? null,
 				requestPath: options.requestPath,
 				totalTokens: options.usage?.totalTokens ?? null,
 				promptTokens: options.usage?.promptTokens ?? null,
@@ -623,6 +645,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 		channelId: string | null;
 		provider: ProviderType | null;
 		model: string | null;
+		canonicalModel?: string | null;
+		requestModelRaw?: string | null;
+		upstreamModelRaw?: string | null;
 		status: "ok" | "warn" | "error";
 		errorClass?: string | null;
 		errorCode?: string | null;
@@ -647,6 +672,10 @@ proxy.all("/*", tokenAuth, async (c) => {
 				channelId: options.channelId,
 				provider: options.provider,
 				model: options.model,
+				canonicalModel:
+					options.canonicalModel ?? canonicalModel ?? downstreamModel ?? null,
+				requestModelRaw: options.requestModelRaw ?? requestModelRaw ?? null,
+				upstreamModelRaw: options.upstreamModelRaw ?? options.model ?? null,
 				status: options.status,
 				errorClass: options.errorClass ?? null,
 				errorCode: options.errorCode ?? null,
@@ -1091,6 +1120,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 	let selectedUpstreamProvider: ProviderType | null = null;
 	let selectedUpstreamEndpoint: EndpointType | null = null;
 	let selectedUpstreamModel: string | null = null;
+	let selectedCanonicalModel: string | null = null;
 	let selectedRequestPath = targetPath;
 	let selectedImmediateUsage: NormalizedUsage | null = null;
 	let selectedImmediateUsageSource: "json" | "header" | "none" = "none";
@@ -1135,6 +1165,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 			failureReason: options.failureReason ?? options.errorCode ?? null,
 			usageSource: options.usageSource,
 			errorMetaJson: options.errorMetaJson ?? null,
+			canonicalModel: selectedCanonicalModel ?? canonicalModel,
+			requestModelRaw,
+			upstreamModelRaw: selectedUpstreamModel,
 		});
 	};
 	const recordSelectedClientDisconnect = (options?: {
@@ -1175,6 +1208,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 			failureStage: "downstream_response",
 			failureReason,
 			usageSource,
+			canonicalModel: selectedCanonicalModel ?? canonicalModel,
+			requestModelRaw,
+			upstreamModelRaw: selectedUpstreamModel,
 		});
 		selectedStreamUsageRecorded = true;
 		if (
@@ -1187,6 +1223,9 @@ proxy.all("/*", tokenAuth, async (c) => {
 				channelId: selectedChannel.id,
 				provider: selectedUpstreamProvider,
 				model: selectedUpstreamModel ?? downstreamModel,
+				canonicalModel: selectedCanonicalModel ?? canonicalModel,
+				requestModelRaw,
+				upstreamModelRaw: selectedUpstreamModel,
 				status: "warn",
 				errorClass: "downstream_response",
 				errorCode: DOWNSTREAM_CLIENT_ABORT_ERROR_CODE,
@@ -1436,6 +1475,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 			selectedUpstreamProvider,
 			selectedUpstreamEndpoint,
 			selectedUpstreamModel,
+			selectedCanonicalModel,
 			selectedRequestPath,
 			selectedImmediateUsage,
 			selectedImmediateUsageSource,
@@ -1455,6 +1495,8 @@ proxy.all("/*", tokenAuth, async (c) => {
 		ordered,
 		callTokenMap,
 		downstreamModel,
+		canonicalModel,
+		requestModelRaw,
 		verifiedModelsByChannel,
 		endpointType,
 		downstreamProvider,
@@ -1558,6 +1600,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 	selectedUpstreamProvider = attemptRun.selectedUpstreamProvider;
 	selectedUpstreamEndpoint = attemptRun.selectedUpstreamEndpoint;
 	selectedUpstreamModel = attemptRun.selectedUpstreamModel;
+	selectedCanonicalModel = attemptRun.selectedCanonicalModel;
 	selectedRequestPath = attemptRun.selectedRequestPath;
 	selectedImmediateUsage = attemptRun.selectedImmediateUsage;
 	selectedImmediateUsageSource = attemptRun.selectedImmediateUsageSource;
@@ -1618,6 +1661,8 @@ proxy.all("/*", tokenAuth, async (c) => {
 		selectedAttemptUpstreamRequestId,
 		selectedUpstreamProvider,
 		selectedUpstreamModel,
+		selectedCanonicalModel,
+		requestModelRaw,
 		downstreamModel,
 		endpointType,
 		STREAM_META_PARTIAL_CODE,

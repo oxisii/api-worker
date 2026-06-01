@@ -1,4 +1,5 @@
 import { safeJsonParse } from "../utils/json";
+import { deriveCanonicalModel } from "./model-normalization";
 import {
 	type EndpointOverrides,
 	parseSiteMetadata,
@@ -38,7 +39,9 @@ function normalizeMapping(value: unknown): Record<string, string> {
 		if (entry === undefined || entry === null) {
 			continue;
 		}
-		output[String(key)] = String(entry);
+		const normalizedKey =
+			key === "*" ? "*" : (deriveCanonicalModel(String(key)) ?? String(key));
+		output[normalizedKey] = String(entry);
 	}
 	return output;
 }
@@ -79,5 +82,6 @@ export function resolveMappedModel(
 	if (!model) {
 		return modelMapping["*"] ?? null;
 	}
-	return modelMapping[model] ?? modelMapping["*"] ?? model;
+	const canonicalModel = deriveCanonicalModel(model) ?? model;
+	return modelMapping[canonicalModel] ?? modelMapping["*"] ?? model;
 }

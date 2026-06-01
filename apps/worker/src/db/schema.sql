@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS usage_logs (
   token_id TEXT,
   channel_id TEXT,
   model TEXT,
+  canonical_model TEXT,
+  request_model_raw TEXT,
+  upstream_model_raw TEXT,
   request_path TEXT,
   total_tokens INTEGER,
   prompt_tokens INTEGER,
@@ -96,17 +99,41 @@ CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs (created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_channel_id ON usage_logs (channel_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_token_id ON usage_logs (token_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_model ON usage_logs (model);
+CREATE INDEX IF NOT EXISTS idx_usage_logs_canonical_model ON usage_logs (canonical_model);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_status ON usage_logs (status);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_upstream_status ON usage_logs (upstream_status);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_token_created_at ON usage_logs (token_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_channel_created_at ON usage_logs (channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_model_created_at ON usage_logs (model, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_logs_canonical_model_created_at ON usage_logs (canonical_model, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_upstream_status_created_at ON usage_logs (upstream_status, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_status_created_at ON usage_logs (status, created_at);
+
+CREATE TABLE IF NOT EXISTS model_registry (
+  canonical_model TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  provider_hint TEXT,
+  import_regex TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_aliases (
+  alias TEXT NOT NULL,
+  provider_hint TEXT NOT NULL DEFAULT '',
+  canonical_model TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (alias, provider_hint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_aliases_canonical_model
+  ON model_aliases (canonical_model);
 
 CREATE TABLE IF NOT EXISTS model_prices (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
+  canonical_model TEXT,
   model_pattern TEXT NOT NULL,
   model_name TEXT NOT NULL,
   currency TEXT NOT NULL DEFAULT 'USD',
@@ -125,6 +152,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_model_prices_source_provider_pattern
   ON model_prices (source, provider, model_pattern);
 CREATE INDEX IF NOT EXISTS idx_model_prices_model_pattern
   ON model_prices (model_pattern);
+CREATE INDEX IF NOT EXISTS idx_model_prices_canonical_model
+  ON model_prices (canonical_model);
 
 DELETE FROM model_prices WHERE source = 'builtin';
 
@@ -135,6 +164,9 @@ CREATE TABLE IF NOT EXISTS attempt_events (
   channel_id TEXT,
   provider TEXT,
   model TEXT,
+  canonical_model TEXT,
+  request_model_raw TEXT,
+  upstream_model_raw TEXT,
   status TEXT NOT NULL,
   error_class TEXT,
   error_code TEXT,
@@ -153,6 +185,9 @@ CREATE INDEX IF NOT EXISTS idx_attempt_events_trace_attempt
 
 CREATE INDEX IF NOT EXISTS idx_attempt_events_created_at
   ON attempt_events (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_attempt_events_canonical_model
+  ON attempt_events (canonical_model);
 
 CREATE INDEX IF NOT EXISTS idx_attempt_events_channel_created_at
   ON attempt_events (channel_id, created_at);
@@ -176,6 +211,7 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 CREATE TABLE IF NOT EXISTS channel_model_capabilities (
   channel_id TEXT NOT NULL,
   model TEXT NOT NULL,
+  canonical_model TEXT,
   last_ok_at INTEGER NOT NULL,
   last_err_at INTEGER,
   last_err_code TEXT,
@@ -188,6 +224,9 @@ CREATE TABLE IF NOT EXISTS channel_model_capabilities (
 
 CREATE INDEX IF NOT EXISTS idx_channel_model_capabilities_model
   ON channel_model_capabilities (model);
+
+CREATE INDEX IF NOT EXISTS idx_channel_model_capabilities_canonical_model
+  ON channel_model_capabilities (canonical_model);
 
 CREATE INDEX IF NOT EXISTS idx_channel_model_capabilities_channel
   ON channel_model_capabilities (channel_id);

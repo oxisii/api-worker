@@ -31,8 +31,9 @@ function buildDateFilters(query: Record<string, string>) {
 		params.push(query.to);
 	}
 	if (query.model) {
-		sql += " AND model LIKE ? COLLATE NOCASE";
-		params.push(`%${query.model}%`);
+		sql +=
+			" AND (COALESCE(canonical_model, model) LIKE ? COLLATE NOCASE OR request_model_raw LIKE ? COLLATE NOCASE OR upstream_model_raw LIKE ? COLLATE NOCASE)";
+		params.push(`%${query.model}%`, `%${query.model}%`, `%${query.model}%`);
 	}
 	if (channelIds.length > 0) {
 		sql += ` AND channel_id IN (${channelIds.map(() => "?").join(",")})`;
@@ -107,7 +108,7 @@ dashboard.get("/", async (c) => {
 
 	const byModel = await db
 		.prepare(
-			`SELECT model, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY model ORDER BY requests DESC LIMIT 20`,
+			`SELECT COALESCE(canonical_model, model) as model, COUNT(*) as requests, COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(charge_amount), 0) as charge FROM usage_logs${sql} GROUP BY COALESCE(canonical_model, model) ORDER BY requests DESC LIMIT 20`,
 		)
 		.bind(...params)
 		.all();

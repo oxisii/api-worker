@@ -1,4 +1,5 @@
 import { safeJsonParse } from "../utils/json";
+import { deriveCanonicalModel } from "./model-normalization";
 import type { ChannelRow } from "./channel-types";
 
 export type ModelEntry = {
@@ -6,6 +7,7 @@ export type ModelEntry = {
 	label: string;
 	channelId: string;
 	channelName: string;
+	rawIds?: string[];
 };
 
 type ModelLike = { id?: unknown };
@@ -89,11 +91,21 @@ export function extractModelIds(
 export function extractModels(
 	channel: Pick<ChannelRow, "id" | "name" | "models_json">,
 ): ModelEntry[] {
-	return extractModelIds(channel).map((id) => ({
+	const grouped = new Map<string, string[]>();
+	for (const rawId of extractModelIds(channel)) {
+		const canonicalId = deriveCanonicalModel(rawId) ?? rawId;
+		const rawIds = grouped.get(canonicalId) ?? [];
+		if (!rawIds.includes(rawId)) {
+			rawIds.push(rawId);
+		}
+		grouped.set(canonicalId, rawIds);
+	}
+	return Array.from(grouped.entries()).map(([id, rawIds]) => ({
 		id,
 		label: id,
 		channelId: channel.id,
 		channelName: channel.name,
+		rawIds,
 	}));
 }
 
@@ -103,7 +115,7 @@ export function collectUniqueModelIds(
 	const models = new Set<string>();
 	for (const channel of channels) {
 		for (const id of extractModelIds(channel)) {
-			models.add(id);
+			models.add(deriveCanonicalModel(id) ?? id);
 		}
 	}
 	return Array.from(models);

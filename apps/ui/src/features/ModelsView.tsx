@@ -21,6 +21,7 @@ type ModelsViewProps = {
 
 const modelColumns = [
 	{ id: "model", label: "模型", locked: true },
+	{ id: "aliases", label: "实际别名" },
 	{ id: "channels", label: "渠道" },
 ];
 const modelColumnDefaults = modelColumns.map((column) => column.id);
@@ -81,6 +82,7 @@ export const ModelsView = ({ models }: ModelsViewProps) => {
 		});
 		return rows.map((row) => ({
 			id: row.model,
+			rawIds: row.rawIds,
 			channels: row.channels,
 		}));
 	}, [channelFilters, modelFilters, models]);
@@ -149,6 +151,9 @@ export const ModelsView = ({ models }: ModelsViewProps) => {
 								{visibleColumnSet.has("channels") && (
 									<TableHead>渠道</TableHead>
 								)}
+								{visibleColumnSet.has("aliases") && (
+									<TableHead>实际别名</TableHead>
+								)}
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -168,6 +173,27 @@ export const ModelsView = ({ models }: ModelsViewProps) => {
 											<TableCell>
 												<div class="max-w-[360px] truncate font-semibold text-[color:var(--app-ink)]">
 													{model.id}
+												</div>
+											</TableCell>
+										)}
+										{visibleColumnSet.has("aliases") && (
+											<TableCell>
+												<div class="flex max-w-[420px] flex-wrap gap-1.5">
+													{model.rawIds.length > 0 ? (
+														model.rawIds.map((rawId) => (
+															<Chip
+																key={`${model.id}:${rawId}`}
+																class="max-w-[220px] truncate"
+																title={rawId}
+															>
+																{rawId}
+															</Chip>
+														))
+													) : (
+														<span class="text-[color:var(--app-ink-muted)]">
+															-
+														</span>
+													)}
 												</div>
 											</TableCell>
 										)}

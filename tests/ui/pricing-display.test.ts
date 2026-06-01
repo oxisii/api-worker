@@ -40,7 +40,7 @@ describe("pricing display helpers", () => {
 				estimated_count: 0,
 				message: "no_prices_found",
 			}),
-		).toBe("anthropic：失败 未找到价格");
+		).toBe("anthropic：失败 · 未找到价格");
 		expect(
 			getPricingSyncItemTone({
 				source: "anthropic",

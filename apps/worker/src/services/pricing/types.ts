@@ -5,6 +5,7 @@ export type ModelPriceSyncStatus = "exact" | "estimated";
 export type ModelPriceRecord = {
 	id: string;
 	provider: string;
+	canonical_model: string | null;
 	model_pattern: string;
 	model_name: string;
 	currency: string;

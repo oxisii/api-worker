@@ -29,6 +29,7 @@ function normalizePriceRow(row: Record<string, unknown>): ModelPriceRecord {
 	return {
 		id: String(row.id ?? ""),
 		provider: String(row.provider ?? ""),
+		canonical_model: row.canonical_model ? String(row.canonical_model) : null,
 		model_pattern: String(row.model_pattern ?? ""),
 		model_name: String(row.model_name ?? row.model_pattern ?? ""),
 		currency: String(row.currency ?? "USD"),
@@ -62,9 +63,10 @@ export async function upsertModelPrice(
 		.prepare(
 			[
 				"INSERT INTO model_prices",
-				"(id, provider, model_pattern, model_name, currency, input_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m, output_price_per_1m, source, source_url, sync_status, enabled, updated_at)",
-				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"(id, provider, canonical_model, model_pattern, model_name, currency, input_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m, output_price_per_1m, source, source_url, sync_status, enabled, updated_at)",
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				"ON CONFLICT(source, provider, model_pattern) DO UPDATE SET",
+				"canonical_model = excluded.canonical_model,",
 				"model_name = excluded.model_name,",
 				"currency = excluded.currency,",
 				"input_price_per_1m = excluded.input_price_per_1m,",
@@ -80,6 +82,7 @@ export async function upsertModelPrice(
 		.bind(
 			id,
 			price.provider,
+			price.canonical_model ?? null,
 			price.model_pattern,
 			price.model_name,
 			price.currency,
@@ -97,6 +100,7 @@ export async function upsertModelPrice(
 	return {
 		id,
 		provider: price.provider,
+		canonical_model: price.canonical_model ?? null,
 		model_pattern: price.model_pattern,
 		model_name: price.model_name,
 		currency: price.currency,
@@ -120,6 +124,11 @@ async function ensureModelPriceColumns(db: D1Database): Promise<void> {
 	if (!names.has("sync_status")) {
 		await db
 			.prepare("ALTER TABLE model_prices ADD COLUMN sync_status TEXT")
+			.run();
+	}
+	if (!names.has("canonical_model")) {
+		await db
+			.prepare("ALTER TABLE model_prices ADD COLUMN canonical_model TEXT")
 			.run();
 	}
 }
@@ -173,6 +182,7 @@ export async function overrideSyncedModelPriceAsManual(
 				[
 					"UPDATE model_prices SET",
 					"provider = ?,",
+					"canonical_model = ?,",
 					"model_pattern = ?,",
 					"model_name = ?,",
 					"currency = ?,",
@@ -190,6 +200,7 @@ export async function overrideSyncedModelPriceAsManual(
 			)
 			.bind(
 				price.provider,
+				price.canonical_model ?? null,
 				price.model_pattern,
 				price.model_name,
 				price.currency,

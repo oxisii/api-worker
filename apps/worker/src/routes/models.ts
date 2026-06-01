@@ -11,6 +11,7 @@ import {
 	listVerifiedModelsByChannel,
 } from "../services/channel-model-capabilities";
 import {
+	extractModels,
 	extractModelIds,
 	removeModelFromModelsJson,
 } from "../services/channel-models";
@@ -36,6 +37,7 @@ type ModelChannelStatus = "enabled" | "pending" | "excluded";
 type ModelsPayload = {
 	models: Array<{
 		id: string;
+		raw_ids?: string[];
 		counts: {
 			enabled: number;
 			pending: number;
@@ -68,11 +70,13 @@ function normalizeManagedStatus(
 function addModelChannel(
 	map: Map<string, ModelsPayload["models"][number]>,
 	model: string,
+	rawIds: string[] | undefined,
 	channel: { id: string; name: string },
 	status: ModelChannelStatus,
 ): void {
 	const existing = map.get(model) ?? {
 		id: model,
+		raw_ids: [],
 		counts: {
 			enabled: 0,
 			pending: 0,
@@ -92,6 +96,11 @@ function addModelChannel(
 		name: channel.name,
 		status,
 	});
+	for (const rawId of rawIds ?? []) {
+		if (!existing.raw_ids?.includes(rawId)) {
+			existing.raw_ids?.push(rawId);
+		}
+	}
 	existing.counts[status] += 1;
 	map.set(model, existing);
 }
@@ -116,6 +125,10 @@ async function buildModelsPayload(db: Bindings["DB"]): Promise<ModelsPayload> {
 			...manual.pending,
 			...manual.exclude,
 		]);
+		const rawIdsByCanonical = new Map<string, string[]>();
+		for (const entry of extractModels(channel)) {
+			rawIdsByCanonical.set(entry.id, entry.rawIds ?? [entry.id]);
+		}
 		for (const model of candidates) {
 			const status = normalizeManagedStatus(
 				resolveChannelModelStatus(channel.metadata_json, model),
@@ -124,7 +137,13 @@ async function buildModelsPayload(db: Bindings["DB"]): Promise<ModelsPayload> {
 			if (!status) {
 				continue;
 			}
-			addModelChannel(map, model, channel, status);
+			addModelChannel(
+				map,
+				model,
+				rawIdsByCanonical.get(model),
+				channel,
+				status,
+			);
 		}
 	}
 

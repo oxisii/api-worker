@@ -1,4 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { deriveCanonicalModel } from "../model-normalization";
 import { nowIso } from "../../utils/time";
 import { convertPriceFieldsCurrency } from "./exchange-rate";
 import { deleteSyncedModelPricesByProvider, upsertModelPrice } from "./repo";
@@ -225,6 +226,7 @@ function priceFromValues(input: {
 }): ParsedPrice {
 	return {
 		provider: inferProvider(input.source, input.model),
+		canonical_model: deriveCanonicalModel(input.model),
 		model_pattern: input.model,
 		model_name: input.model,
 		currency: input.currency,
@@ -420,17 +422,23 @@ function splitBlocksByMarker(html: string, marker: string): string[] {
 	return blocks;
 }
 
-function parseMoonshotHomeCards(sourceUrl: string, html: string): ParsedPrice[] {
+function parseMoonshotHomeCards(
+	sourceUrl: string,
+	html: string,
+): ParsedPrice[] {
 	const prices: ParsedPrice[] = [];
 	for (const card of splitBlocksByMarker(html, "home-card")) {
-		const title = card.match(/<h3[^>]*class="[^"]*home-card-title[^"]*"[^>]*>([\s\S]*?)<\/h3>/i)?.[1];
+		const title = card.match(
+			/<h3[^>]*class="[^"]*home-card-title[^"]*"[^>]*>([\s\S]*?)<\/h3>/i,
+		)?.[1];
 		const model = normalizeMoonshotDisplayName(title ?? "");
 		if (!model) {
 			continue;
 		}
 		const pricingHtml =
-			card.match(/<div[^>]*class="[^"]*home-card-pricing[^"]*"[^>]*>([\s\S]*?)(?:<\/a>|<section|<footer)/i)?.[1] ??
-			card;
+			card.match(
+				/<div[^>]*class="[^"]*home-card-pricing[^"]*"[^>]*>([\s\S]*?)(?:<\/a>|<section|<footer)/i,
+			)?.[1] ?? card;
 		const rowMatches = Array.from(
 			pricingHtml.matchAll(
 				/<span[^>]*>([\s\S]*?)<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/gi,
@@ -617,7 +625,10 @@ function parseJsonPricing(
 	return dedupePrices(prices);
 }
 
-function parseOpenRouterPricing(sourceUrl: string, body: string): ParsedPrice[] {
+function parseOpenRouterPricing(
+	sourceUrl: string,
+	body: string,
+): ParsedPrice[] {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(body);
@@ -625,7 +636,7 @@ function parseOpenRouterPricing(sourceUrl: string, body: string): ParsedPrice[] 
 		return [];
 	}
 	const data = Array.isArray((parsed as { data?: unknown }).data)
-		? ((parsed as { data: unknown[] }).data)
+		? (parsed as { data: unknown[] }).data
 		: [];
 	const prices: ParsedPrice[] = [];
 	for (const item of data) {
@@ -711,7 +722,10 @@ function parseEstimatedPricing(
 function dedupePrices(prices: ParsedPrice[]): ParsedPrice[] {
 	const byKey = new Map<string, ParsedPrice>();
 	for (const price of prices) {
-		byKey.set(`${price.provider}:${price.model_pattern}`, price);
+		byKey.set(
+			`${price.provider}:${price.canonical_model ?? price.model_pattern}`,
+			price,
+		);
 	}
 	return Array.from(byKey.values());
 }
@@ -803,11 +817,7 @@ export async function syncModelPrices(
 						const fallbackBody = await fallbackResponse.text();
 						parsedPrices = parseOpenRouterPricing(fallbackUrl, fallbackBody)
 							.map((price) =>
-								mapOpenRouterFallbackPrice(
-									price,
-									fallbackConfig,
-									fallbackUrl,
-								),
+								mapOpenRouterFallbackPrice(price, fallbackConfig, fallbackUrl),
 							)
 							.filter((price): price is ParsedPrice => Boolean(price));
 						if (parsedPrices.length > 0) {

@@ -19,6 +19,7 @@ export type SelectedAttemptState = {
 	selectedUpstreamProvider: ProviderType;
 	selectedUpstreamEndpoint: EndpointType;
 	selectedUpstreamModel: string | null;
+	selectedCanonicalModel: string | null;
 	selectedRequestPath: string;
 	selectedImmediateUsage: NormalizedUsage | null;
 	selectedImmediateUsageSource: "json" | "header" | "none";
@@ -39,6 +40,7 @@ export function buildSelectedAttemptState(options: {
 	responsePath: string;
 	fallbackEndpointType: EndpointType;
 	upstreamModel: string | null;
+	canonicalModel: string | null;
 	immediateUsage: NormalizedUsage | null;
 	immediateUsageSource: "json" | "header" | "none";
 	hasAnyUsageSignal: boolean;
@@ -64,6 +66,7 @@ export function buildSelectedAttemptState(options: {
 		selectedUpstreamProvider: options.upstreamProvider,
 		selectedUpstreamEndpoint,
 		selectedUpstreamModel: options.upstreamModel,
+		selectedCanonicalModel: options.canonicalModel,
 		selectedRequestPath: options.responsePath,
 		selectedImmediateUsage: options.immediateUsage,
 		selectedImmediateUsageSource: options.immediateUsageSource,

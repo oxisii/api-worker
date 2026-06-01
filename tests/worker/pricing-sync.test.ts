@@ -5,6 +5,30 @@ import {
 } from "../../apps/worker/src/services/pricing/sync";
 
 describe("pricing sync parser", () => {
+	function getModelPriceColumns() {
+		return [{ name: "sync_status" }, { name: "canonical_model" }];
+	}
+
+	function toInsertedModel(params: unknown[]) {
+		return {
+			id: params[0],
+			provider: params[1],
+			canonical_model: params[2],
+			model_pattern: params[3],
+			model_name: params[4],
+			currency: params[5],
+			input_price_per_1m: params[6],
+			cache_read_price_per_1m: params[7],
+			cache_write_price_per_1m: params[8],
+			output_price_per_1m: params[9],
+			source: params[10],
+			source_url: params[11],
+			sync_status: params[12],
+			enabled: params[13],
+			updated_at: params[14],
+		};
+	}
+
 	it("从结构化官方价格表解析精确价", () => {
 		const prices = parsePricingPage(
 			"openai",
@@ -211,7 +235,7 @@ describe("pricing sync parser", () => {
 
 	it("同步成功后替换同提供方的旧同步价，避免估算残留", async () => {
 		const deletedProviders: unknown[][] = [];
-		const insertedModels: unknown[][] = [];
+		const insertedModels: ReturnType<typeof toInsertedModel>[] = [];
 		const db = {
 			prepare(sql: string) {
 				return {
@@ -222,17 +246,17 @@ describe("pricing sync parser", () => {
 									deletedProviders.push(params);
 								}
 								if (sql.startsWith("INSERT INTO model_prices")) {
-									insertedModels.push(params);
+									insertedModels.push(toInsertedModel(params));
 								}
 								return { success: true };
 							},
 							async all() {
-								return { results: [{ name: "sync_status" }] };
+								return { results: getModelPriceColumns() };
 							},
 						};
 					},
 					async all() {
-						return { results: [{ name: "sync_status" }] };
+						return { results: getModelPriceColumns() };
 					},
 				};
 			},
@@ -254,7 +278,10 @@ describe("pricing sync parser", () => {
 		});
 
 		expect(deletedProviders).toEqual([["official_sync", "deepseek"]]);
-		expect(insertedModels[0]).toContain("deepseek-v4-flash");
+		expect(insertedModels[0]).toMatchObject({
+			model_pattern: "deepseek-v4-flash",
+			canonical_model: "deepseek-v4-flash",
+		});
 	});
 
 	it("同步没有解析到价格时把该来源标记为失败", async () => {
@@ -293,7 +320,7 @@ describe("pricing sync parser", () => {
 	});
 
 	it("同步入库前按全局计价币种转换", async () => {
-		const insertedModels: unknown[][] = [];
+		const insertedModels: ReturnType<typeof toInsertedModel>[] = [];
 		const db = {
 			prepare(sql: string) {
 				return {
@@ -301,17 +328,17 @@ describe("pricing sync parser", () => {
 						return {
 							async run() {
 								if (sql.startsWith("INSERT INTO model_prices")) {
-									insertedModels.push(params);
+									insertedModels.push(toInsertedModel(params));
 								}
 								return { success: true };
 							},
 							async all() {
-								return { results: [{ name: "sync_status" }] };
+								return { results: getModelPriceColumns() };
 							},
 						};
 					},
 					async all() {
-						return { results: [{ name: "sync_status" }] };
+						return { results: getModelPriceColumns() };
 					},
 				};
 			},
@@ -334,8 +361,10 @@ describe("pricing sync parser", () => {
 				),
 		});
 
-		expect(insertedModels[0][4]).toBe("CNY");
-		expect(insertedModels[0][5]).toBeCloseTo(0.98);
-		expect(insertedModels[0][8]).toBeCloseTo(1.96);
+		expect(insertedModels[0]).toMatchObject({
+			currency: "CNY",
+		});
+		expect(Number(insertedModels[0]?.input_price_per_1m)).toBeCloseTo(0.98);
+		expect(Number(insertedModels[0]?.output_price_per_1m)).toBeCloseTo(1.96);
 	});
 });

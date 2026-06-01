@@ -3,6 +3,7 @@ import type { ModelItem } from "../core/types";
 export type ModelSquareRow = {
 	model: string;
 	channels: string[];
+	rawIds: string[];
 };
 
 export type SiteSubmitMode = "create" | "edit";
@@ -32,6 +33,9 @@ export function getModelSquareRows(
 			return {
 				model: model.id,
 				channels,
+				rawIds: [...(model.raw_ids ?? [])].sort((left, right) =>
+					left.localeCompare(right),
+				),
 			};
 		})
 		.filter((row) => (channelSet ? row.channels.length > 0 : true));

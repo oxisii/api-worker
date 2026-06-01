@@ -1,0 +1,224 @@
+UPDATE model_registry
+SET import_regex = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE
+  canonical_model = 'anthropic/claude-opus-4-20250514'
+  AND import_regex = '^(?:anthropic/)?claude-opus-4-20250514$';
+
+UPDATE usage_logs
+SET canonical_model = 'anthropic/claude-sonnet-4'
+WHERE canonical_model = 'anthropic/claude-sonnet-4-20250514';
+
+UPDATE attempt_events
+SET canonical_model = 'anthropic/claude-sonnet-4'
+WHERE canonical_model = 'anthropic/claude-sonnet-4-20250514';
+
+UPDATE model_prices
+SET canonical_model = 'anthropic/claude-sonnet-4'
+WHERE canonical_model = 'anthropic/claude-sonnet-4-20250514';
+
+UPDATE channel_model_capabilities
+SET canonical_model = 'anthropic/claude-sonnet-4'
+WHERE canonical_model = 'anthropic/claude-sonnet-4-20250514';
+
+UPDATE model_aliases
+SET canonical_model = 'anthropic/claude-sonnet-4', updated_at = CURRENT_TIMESTAMP
+WHERE canonical_model = 'anthropic/claude-sonnet-4-20250514';
+
+UPDATE model_registry
+SET import_regex = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE
+  canonical_model = 'anthropic/claude-sonnet-4-20250514'
+  AND import_regex = '^(?:anthropic/)?claude-sonnet-4-20250514$';
+
+DELETE FROM model_registry
+WHERE
+  canonical_model = 'anthropic/claude-sonnet-4-20250514'
+  AND (
+    import_regex IS NULL
+    OR TRIM(import_regex) = ''
+    OR import_regex = '^(?:anthropic/)?claude-sonnet-4-20250514$'
+  );
+
+INSERT INTO model_registry (canonical_model, display_name, provider_hint, import_regex, created_at, updated_at)
+VALUES
+  ('openai/gpt-5', 'openai/gpt-5', NULL, '^(?:openai/)?gpt-5(?:\.\d+)?(?:-chat(?:-latest)?)?(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-mini', 'openai/gpt-5-mini', NULL, '^(?:openai/)?gpt-5(?:\.\d+)?-mini(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-nano', 'openai/gpt-5-nano', NULL, '^(?:openai/)?gpt-5(?:\.\d+)?-nano(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-codex', 'openai/gpt-5-codex', NULL, '^(?:openai/)?gpt-5(?:\.\d+)?-codex(?:-(?:mini|max|spark))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-oss-120b', 'openai/gpt-oss-120b', NULL, '^(?:openai/)?gpt-oss-120b$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-oss-20b', 'openai/gpt-oss-20b', NULL, '^(?:openai/)?gpt-oss-20b$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1', 'openai/gpt-4.1', NULL, '^(?:openai/)?gpt-4\.1(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1-mini', 'openai/gpt-4.1-mini', NULL, '^(?:openai/)?gpt-4\.1-mini(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1-nano', 'openai/gpt-4.1-nano', NULL, '^(?:openai/)?gpt-4\.1-nano(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4o', 'openai/gpt-4o', NULL, '^(?:openai/)?gpt-4o(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4o-mini', 'openai/gpt-4o-mini', NULL, '^(?:openai/)?gpt-4o-mini(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/chatgpt-4o-latest', 'openai/chatgpt-4o-latest', NULL, '^(?:openai/)?chatgpt-4o-latest$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o1', 'openai/o1', NULL, '^(?:openai/)?o1(?:-(?:mini|preview|pro))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o3', 'openai/o3', NULL, '^(?:openai/)?o3(?:-(?:mini|pro))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o4-mini', 'openai/o4-mini', NULL, '^(?:openai/)?o4-mini$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4', 'anthropic/claude-sonnet-4', NULL, '^(?:anthropic/)?claude-sonnet-4(?:-\d{8})?(?:-thinking)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4.5', 'anthropic/claude-sonnet-4.5', NULL, '^(?:anthropic/)?claude-sonnet-4(?:[.-]5)(?:-\d{8})?(?:-thinking)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4.6', 'anthropic/claude-sonnet-4.6', NULL, '^(?:anthropic/)?claude-sonnet-4(?:[.-]6)(?:-\d{8})?(?:-thinking)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.1', 'anthropic/claude-opus-4.1', NULL, '^(?:anthropic/)?claude-opus-4(?:[.-]1)(?:-\d{8})?(?:-thinking)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.5', 'anthropic/claude-opus-4.5', NULL, '^(?:anthropic/)?claude-opus-4(?:[.-]5)(?:-\d{8})?(?:-(?:thinking|fast))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.6', 'anthropic/claude-opus-4.6', NULL, '^(?:anthropic/)?claude-opus-4(?:[.-]6)(?:-\d{8})?(?:-(?:thinking|fast))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-haiku-4.5', 'anthropic/claude-haiku-4.5', NULL, '^(?:anthropic/)?claude-haiku-4(?:[.-]5)(?:-\d{8})?(?:-thinking)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-pro', 'google/gemini-2.5-pro', NULL, '^(?:google/)?gemini-2\.5-pro(?:-preview(?:-[\d-]+)?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-flash', 'google/gemini-2.5-flash', NULL, '^(?:google/)?gemini-2\.5-flash(?:-preview(?:-[\d-]+)?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-flash-lite', 'google/gemini-2.5-flash-lite', NULL, '^(?:google/)?gemini-2\.5-flash-lite(?:-preview(?:-[\d-]+)?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3-pro-preview', 'google/gemini-3-pro-preview', NULL, '^(?:google/)?gemini-3-pro-preview(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3-flash-preview', 'google/gemini-3-flash-preview', NULL, '^(?:google/)?gemini-3-flash-preview(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-pro', 'google/gemini-3.1-pro', NULL, '^(?:google/)?gemini-3\.1-pro$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-pro-preview', 'google/gemini-3.1-pro-preview', NULL, '^(?:google/)?gemini-3\.1-pro-preview(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-flash-lite', 'google/gemini-3.1-flash-lite', NULL, '^(?:google/)?gemini-3\.1-flash-lite(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.5-flash', 'google/gemini-3.5-flash', NULL, '^(?:google/)?gemini-3\.5-flash$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-7b', 'google/gemma-7b', NULL, '^(?:@hf/google/|@cf/google/|google/)?gemma-7b(?:-it(?:-lora)?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-2-27b', 'google/gemma-2-27b', NULL, '^(?:@hf/google/|@cf/google/|google/)?gemma-2-27b(?:-it(?:-lora)?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-4-31b', 'google/gemma-4-31b', NULL, '^(?:@hf/google/|@cf/google/|google/)?gemma-4-31b(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-chat', 'deepseek/deepseek-chat', NULL, '^(?:deepseek/)?deepseek-chat(?:-v3(?:[-.]\d+)?(?:-\d{4})?)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-reasoner', 'deepseek/deepseek-reasoner', NULL, '^(?:deepseek/)?deepseek-reasoner$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-r1', 'deepseek/deepseek-r1', NULL, '^(?:deepseek/)?deepseek-r1(?:-\d{4})?(?:-distill-(?:llama|qwen)-\d+b)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3', 'deepseek/deepseek-v3', NULL, '^(?:deepseek/)?deepseek-v3(?:-\d{4})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3.1', 'deepseek/deepseek-v3.1', NULL, '^(?:deepseek/)?deepseek-v3\.1(?:-terminus)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3.2', 'deepseek/deepseek-v3.2', NULL, '^(?:deepseek/)?deepseek-v3\.2(?:-(?:exp|think|reasoner))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-flash', NULL, '^(?:deepseek/)?deepseek-v4-flash$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-pro', NULL, '^(?:deepseek/)?deepseek-v4-pro$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen-max', 'alibaba/qwen-max', NULL, '^(?:alibaba/)?qwen-max(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen-plus', 'alibaba/qwen-plus', NULL, '^(?:alibaba/)?qwen-plus(?:-\d{4}-\d{2}-\d{2})?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-coder-plus', 'alibaba/qwen3-coder-plus', NULL, '^(?:alibaba/)?qwen3-coder-plus(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-coder', 'alibaba/qwen3-coder', NULL, '^(?:alibaba/)?qwen3-coder(?:-(?!plus\b)[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3.5-397b-a17b', 'alibaba/qwen3.5-397b-a17b', NULL, '^(?:alibaba/)?qwen3\.5-397b-a17b$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-next-80b-a3b', 'alibaba/qwen3-next-80b-a3b', NULL, '^(?:alibaba/)?qwen3-next-80b-a3b$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2', 'moonshot/kimi-k2', NULL, '^(?:moonshot/)?kimi-k2(?:-(?:thinking|instruct(?:-[\w.-]+)?))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2.5', 'moonshot/kimi-k2.5', NULL, '^(?:moonshot/)?kimi-k2\.5$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2.6', 'moonshot/kimi-k2.6', NULL, '^(?:moonshot/)?kimi-k2\.6$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/moonshot-v1-8k', 'moonshot/moonshot-v1-8k', NULL, '^(?:moonshot/)?moonshot-v1-8k$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.5', 'zhipu/glm-4.5', NULL, '^(?:(?:zhipu|z-ai)/)?glm-4\.5$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.5-air', 'zhipu/glm-4.5-air', NULL, '^(?:(?:zhipu|z-ai)/)?glm-4\.5-air$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.6', 'zhipu/glm-4.6', NULL, '^(?:(?:zhipu|z-ai)/)?glm-4\.6$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.6v', 'zhipu/glm-4.6v', NULL, '^(?:(?:zhipu|z-ai)/)?glm-4\.6v$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.7', 'zhipu/glm-4.7', NULL, '^(?:(?:zhipu|z-ai)/)?glm-4\.7(?:-flash)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5', 'zhipu/glm-5', NULL, '^(?:(?:zhipu|z-ai)/)?glm-5(?:-turbo)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5.1', 'zhipu/glm-5.1', NULL, '^(?:(?:zhipu|z-ai)/)?glm-5\.1$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5v-turbo', 'zhipu/glm-5v-turbo', NULL, '^(?:(?:zhipu|z-ai)/)?glm-5v-turbo$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-3', 'x-ai/grok-3', NULL, '^(?:x-ai/)?grok-3(?:-(?:thinking|mini|fast|expert))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4', 'x-ai/grok-4', NULL, '^(?:x-ai/)?grok-4(?:-(?:thinking|mini|fast|expert|heavy))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.1', 'x-ai/grok-4.1', NULL, '^(?:x-ai/)?grok-4\.1(?:-(?:thinking|expert|fast|mini))?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.2', 'x-ai/grok-4.2', NULL, '^(?:x-ai/)?grok-4\.2(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.20', 'x-ai/grok-4.20', NULL, '^(?:x-ai/)?grok-4\.20(?:-[\w.-]+)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.3', 'x-ai/grok-4.3', NULL, '^(?:x-ai/)?grok-4\.3$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('minimax/minimax-m2.5', 'minimax/minimax-m2.5', NULL, '^(?:minimax/)?minimax-m2\.5(?:-highspeed)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('minimax/minimax-m2.7', 'minimax/minimax-m2.7', NULL, '^(?:minimax/)?minimax-m2\.7(?:-highspeed)?$', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(canonical_model) DO UPDATE SET
+  import_regex = CASE
+    WHEN model_registry.import_regex IS NULL OR TRIM(model_registry.import_regex) = ''
+      THEN excluded.import_regex
+    WHEN model_registry.canonical_model = 'google/gemini-2.5-pro'
+      AND model_registry.import_regex = '^(?:google/)?gemini-2\.5-pro(?:-preview(?:-\d{2}-\d{2})?)?$'
+      THEN excluded.import_regex
+    WHEN model_registry.canonical_model = 'google/gemini-2.5-flash'
+      AND model_registry.import_regex = '^(?:google/)?gemini-2\.5-flash(?:-preview(?:-\d{2}-\d{2})?)?$'
+      THEN excluded.import_regex
+    WHEN model_registry.canonical_model = 'google/gemma-7b'
+      AND model_registry.import_regex = '^(?:@hf/google/|google/)?gemma-7b(?:-it)?$'
+      THEN excluded.import_regex
+    WHEN model_registry.canonical_model = 'moonshot/kimi-k2'
+      AND model_registry.import_regex = '^(?:moonshot/)?kimi-k2$'
+      THEN excluded.import_regex
+    WHEN model_registry.canonical_model = 'alibaba/qwen3-coder'
+      AND model_registry.import_regex = '^(?:alibaba/)?qwen3-coder(?:-[\w.-]+)?$'
+      THEN excluded.import_regex
+    ELSE model_registry.import_regex
+  END,
+  updated_at = CASE
+    WHEN model_registry.import_regex IS NULL OR TRIM(model_registry.import_regex) = ''
+      THEN excluded.updated_at
+    WHEN model_registry.canonical_model = 'google/gemini-2.5-pro'
+      AND model_registry.import_regex = '^(?:google/)?gemini-2\.5-pro(?:-preview(?:-\d{2}-\d{2})?)?$'
+      THEN excluded.updated_at
+    WHEN model_registry.canonical_model = 'google/gemini-2.5-flash'
+      AND model_registry.import_regex = '^(?:google/)?gemini-2\.5-flash(?:-preview(?:-\d{2}-\d{2})?)?$'
+      THEN excluded.updated_at
+    WHEN model_registry.canonical_model = 'google/gemma-7b'
+      AND model_registry.import_regex = '^(?:@hf/google/|google/)?gemma-7b(?:-it)?$'
+      THEN excluded.updated_at
+    WHEN model_registry.canonical_model = 'moonshot/kimi-k2'
+      AND model_registry.import_regex = '^(?:moonshot/)?kimi-k2$'
+      THEN excluded.updated_at
+    WHEN model_registry.canonical_model = 'alibaba/qwen3-coder'
+      AND model_registry.import_regex = '^(?:alibaba/)?qwen3-coder(?:-[\w.-]+)?$'
+      THEN excluded.updated_at
+    ELSE model_registry.updated_at
+  END;
+
+INSERT INTO model_aliases (alias, provider_hint, canonical_model, created_at, updated_at)
+VALUES
+  ('openai/gpt-5', '', 'openai/gpt-5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-mini', '', 'openai/gpt-5-mini', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-nano', '', 'openai/gpt-5-nano', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-5-codex', '', 'openai/gpt-5-codex', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-oss-120b', '', 'openai/gpt-oss-120b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-oss-20b', '', 'openai/gpt-oss-20b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1', '', 'openai/gpt-4.1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1-mini', '', 'openai/gpt-4.1-mini', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4.1-nano', '', 'openai/gpt-4.1-nano', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4o', '', 'openai/gpt-4o', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/gpt-4o-mini', '', 'openai/gpt-4o-mini', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/chatgpt-4o-latest', '', 'openai/chatgpt-4o-latest', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o1', '', 'openai/o1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o3', '', 'openai/o3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('openai/o4-mini', '', 'openai/o4-mini', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4', '', 'anthropic/claude-sonnet-4', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4.5', '', 'anthropic/claude-sonnet-4.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-sonnet-4.6', '', 'anthropic/claude-sonnet-4.6', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.1', '', 'anthropic/claude-opus-4.1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.5', '', 'anthropic/claude-opus-4.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-opus-4.6', '', 'anthropic/claude-opus-4.6', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('anthropic/claude-haiku-4.5', '', 'anthropic/claude-haiku-4.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-pro', '', 'google/gemini-2.5-pro', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-flash', '', 'google/gemini-2.5-flash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-2.5-flash-lite', '', 'google/gemini-2.5-flash-lite', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3-pro-preview', '', 'google/gemini-3-pro-preview', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3-flash-preview', '', 'google/gemini-3-flash-preview', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-pro', '', 'google/gemini-3.1-pro', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-pro-preview', '', 'google/gemini-3.1-pro-preview', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.1-flash-lite', '', 'google/gemini-3.1-flash-lite', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemini-3.5-flash', '', 'google/gemini-3.5-flash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-7b', '', 'google/gemma-7b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-2-27b', '', 'google/gemma-2-27b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('google/gemma-4-31b', '', 'google/gemma-4-31b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-chat', '', 'deepseek/deepseek-chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-reasoner', '', 'deepseek/deepseek-reasoner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-r1', '', 'deepseek/deepseek-r1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3', '', 'deepseek/deepseek-v3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3.1', '', 'deepseek/deepseek-v3.1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v3.2', '', 'deepseek/deepseek-v3.2', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v4-flash', '', 'deepseek/deepseek-v4-flash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('deepseek/deepseek-v4-pro', '', 'deepseek/deepseek-v4-pro', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen-max', '', 'alibaba/qwen-max', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen-plus', '', 'alibaba/qwen-plus', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-coder-plus', '', 'alibaba/qwen3-coder-plus', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-coder', '', 'alibaba/qwen3-coder', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3.5-397b-a17b', '', 'alibaba/qwen3.5-397b-a17b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('alibaba/qwen3-next-80b-a3b', '', 'alibaba/qwen3-next-80b-a3b', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2', '', 'moonshot/kimi-k2', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2.5', '', 'moonshot/kimi-k2.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/kimi-k2.6', '', 'moonshot/kimi-k2.6', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('moonshot/moonshot-v1-8k', '', 'moonshot/moonshot-v1-8k', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.5', '', 'zhipu/glm-4.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.5-air', '', 'zhipu/glm-4.5-air', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.6', '', 'zhipu/glm-4.6', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.6v', '', 'zhipu/glm-4.6v', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-4.7', '', 'zhipu/glm-4.7', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5', '', 'zhipu/glm-5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5.1', '', 'zhipu/glm-5.1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('zhipu/glm-5v-turbo', '', 'zhipu/glm-5v-turbo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-3', '', 'x-ai/grok-3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4', '', 'x-ai/grok-4', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.1', '', 'x-ai/grok-4.1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.2', '', 'x-ai/grok-4.2', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.20', '', 'x-ai/grok-4.20', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('x-ai/grok-4.3', '', 'x-ai/grok-4.3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('minimax/minimax-m2.5', '', 'minimax/minimax-m2.5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('minimax/minimax-m2.7', '', 'minimax/minimax-m2.7', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(alias, provider_hint) DO NOTHING;

@@ -7,6 +7,7 @@ describe("navigation tabs", () => {
 			"dashboard",
 			"channels",
 			"models",
+			"canonicalModels",
 			"pricing",
 			"tokens",
 			"usage",

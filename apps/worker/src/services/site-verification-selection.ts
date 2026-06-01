@@ -5,6 +5,7 @@ import {
 } from "./channel-effective-models";
 import type { ChannelRow } from "./channel-types";
 import type { ChannelTokenTestItem } from "./channel-testing";
+import { deriveCanonicalModel } from "./model-normalization";
 
 export type VerificationTokenSelectionInput = {
 	id?: string;
@@ -67,11 +68,12 @@ export function collectCandidateModels(options: {
 		parseManualModelConfig(options.channel.metadata_json).exclude,
 	);
 	const appendCandidate = (model: string | null, source: string) => {
-		if (!model || excludedModels.has(model)) {
+		const canonicalModel = deriveCanonicalModel(model);
+		if (!canonicalModel || excludedModels.has(canonicalModel)) {
 			return;
 		}
 		rawCandidates.push({
-			model,
+			model: canonicalModel,
 			source,
 		});
 	};

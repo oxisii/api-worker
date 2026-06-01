@@ -154,6 +154,8 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 		selectedAttemptUpstreamRequestId,
 		selectedUpstreamProvider,
 		selectedUpstreamModel,
+		selectedCanonicalModel,
+		requestModelRaw,
 		downstreamModel,
 		endpointType,
 		STREAM_META_PARTIAL_CODE,
@@ -309,6 +311,9 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 				channelId: selectedChannel.id,
 				provider: selectedUpstreamProvider,
 				model: selectedUpstreamModel ?? downstreamModel,
+				canonicalModel: selectedCanonicalModel ?? downstreamModel,
+				requestModelRaw,
+				upstreamModelRaw: selectedUpstreamModel,
 				status: "warn",
 				errorClass: "usage_observe",
 				errorCode: usageWarning.code,
@@ -451,6 +456,9 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 				failureStage: "usage_finalize",
 				failureReason: usageMissingCode,
 				usageSource: selectedImmediateUsageSource,
+				canonicalModel: selectedCanonicalModel ?? downstreamModel,
+				requestModelRaw,
+				upstreamModelRaw: selectedUpstreamModel,
 			});
 			return buildDirectErrorResponse(
 				selectedResponse.status,
@@ -467,6 +475,9 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 			upstreamStatus: selectedResponse.status,
 			failureStage: "usage_finalize",
 			usageSource: selectedImmediateUsageSource,
+			canonicalModel: selectedCanonicalModel ?? downstreamModel,
+			requestModelRaw,
+			upstreamModelRaw: selectedUpstreamModel,
 		});
 	}
 
@@ -537,6 +548,9 @@ export async function finalizeSelectedResponse(ctx: any): Promise<Response> {
 						channelId: selectedChannel.id,
 						provider: selectedUpstreamProvider,
 						model: selectedUpstreamModel ?? downstreamModel,
+						canonicalModel: selectedCanonicalModel ?? downstreamModel,
+						requestModelRaw,
+						upstreamModelRaw: selectedUpstreamModel,
 						status: "error",
 						errorClass: "downstream_response",
 						errorCode: "downstream_stream_failed",

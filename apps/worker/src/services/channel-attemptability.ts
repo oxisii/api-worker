@@ -4,6 +4,7 @@ import {
 	type ChannelMetadata,
 	type ProviderType,
 } from "./channel-metadata";
+import { deriveCanonicalModel } from "./model-normalization";
 import { resolveUpstreamModelForChannel } from "./channel-routing";
 import type { ChannelRecord } from "./channel-types";
 import type { CallTokenItem } from "./call-token-selector";
@@ -31,6 +32,7 @@ export type ChannelAttemptTarget = {
 	channel: ChannelRecord;
 	metadata: ChannelMetadata;
 	upstreamProvider: ProviderType;
+	canonicalModel: string | null;
 	upstreamModel: string | null;
 	recordModel: string | null;
 	tokenSelection: CallTokenSelection;
@@ -47,9 +49,14 @@ export function normalizeTokenModels(raw?: string | null): string[] | null {
 		if (!Array.isArray(parsed) || parsed.length === 0) {
 			return null;
 		}
-		const models = parsed
-			.map((item) => String(item ?? "").trim())
-			.filter((item) => item.length > 0);
+		const models = Array.from(
+			new Set(
+				parsed
+					.map((item) => String(item ?? "").trim())
+					.filter((item) => item.length > 0)
+					.map((item) => deriveCanonicalModel(item) ?? item),
+			),
+		);
 		return models.length > 0 ? models : null;
 	} catch {
 		return null;
@@ -95,7 +102,8 @@ export function selectTokenForModel<T extends ModelScopedToken>(
 	if (tokens.length === 0) {
 		return { token: null, hasModelList: false };
 	}
-	if (!model) {
+	const canonicalModel = deriveCanonicalModel(model);
+	if (!canonicalModel) {
 		return {
 			token: pickTokenBySelectionKey(tokens, selectionKey, selectionOffset),
 			hasModelList: false,
@@ -113,7 +121,7 @@ export function selectTokenForModel<T extends ModelScopedToken>(
 		};
 	}
 	const matchedTokens = tokensWithModels
-		.filter((entry) => entry.models?.includes(model))
+		.filter((entry) => entry.models?.includes(canonicalModel))
 		.map((entry) => entry.token);
 	if (matchedTokens.length > 0) {
 		return {
@@ -140,6 +148,7 @@ export function resolveChannelAttemptTarget(options: {
 }): ChannelAttemptTarget {
 	const metadata = parseChannelMetadata(options.channel.metadata_json);
 	const upstreamProvider = resolveProvider(metadata.site_type);
+	const canonicalModel = deriveCanonicalModel(options.downstreamModel);
 	const resolvedModel = resolveUpstreamModelForChannel(
 		options.channel,
 		metadata,
@@ -160,6 +169,7 @@ export function resolveChannelAttemptTarget(options: {
 				channel: options.channel,
 				metadata,
 				upstreamProvider,
+				canonicalModel,
 				upstreamModel,
 				recordModel,
 				tokenSelection,
@@ -173,6 +183,7 @@ export function resolveChannelAttemptTarget(options: {
 			channel: options.channel,
 			metadata,
 			upstreamProvider,
+			canonicalModel,
 			upstreamModel,
 			recordModel,
 			tokenSelection,
@@ -189,6 +200,7 @@ export function resolveChannelAttemptTarget(options: {
 			channel: options.channel,
 			metadata,
 			upstreamProvider,
+			canonicalModel,
 			upstreamModel,
 			recordModel,
 			tokenSelection,
@@ -201,6 +213,7 @@ export function resolveChannelAttemptTarget(options: {
 			channel: options.channel,
 			metadata,
 			upstreamProvider,
+			canonicalModel,
 			upstreamModel,
 			recordModel,
 			tokenSelection,
@@ -212,6 +225,7 @@ export function resolveChannelAttemptTarget(options: {
 		channel: options.channel,
 		metadata,
 		upstreamProvider,
+		canonicalModel,
 		upstreamModel,
 		recordModel,
 		tokenSelection,

@@ -3,6 +3,10 @@ import { safeJsonParse } from "../utils/json";
 import type { ChannelRow } from "./channel-types";
 import { extractModelIds, type ModelEntry } from "./channel-models";
 import { listVerifiedModelsByChannel } from "./channel-model-capabilities";
+import {
+	deriveCanonicalModel,
+	toCanonicalModelSet,
+} from "./model-normalization";
 
 type ManualModelConfig = {
 	include: string[];
@@ -26,7 +30,7 @@ function appendUnique(
 	seen: Set<string>,
 	value: unknown,
 ): void {
-	const normalized = String(value ?? "").trim();
+	const normalized = deriveCanonicalModel(String(value ?? "").trim());
 	if (!normalized || seen.has(normalized)) {
 		return;
 	}
@@ -75,12 +79,14 @@ function setModelList(
 }
 
 function removeModel(models: string[], model: string): string[] {
-	return models.filter((item) => item !== model);
+	const canonicalModel = deriveCanonicalModel(model) ?? model;
+	return models.filter((item) => item !== canonicalModel);
 }
 
 function appendModel(models: string[], model: string): string[] {
 	const output = removeModel(models, model);
-	output.push(model);
+	const canonicalModel = deriveCanonicalModel(model) ?? model;
+	output.push(canonicalModel);
 	return output;
 }
 
@@ -99,22 +105,23 @@ export function updateManualModelStatus(
 	if (!model) {
 		return metadataJson ?? null;
 	}
+	const canonicalModel = deriveCanonicalModel(model) ?? model;
 	const metadata = safeJsonParse<Record<string, unknown>>(metadataJson, {});
 	const manual = parseManualModelConfig(metadataJson);
 	const next = {
-		include: removeModel(manual.include, model),
-		pending: removeModel(manual.pending, model),
-		exclude: removeModel(manual.exclude, model),
+		include: removeModel(manual.include, canonicalModel),
+		pending: removeModel(manual.pending, canonicalModel),
+		exclude: removeModel(manual.exclude, canonicalModel),
 	};
 
 	if (update.status === "enabled") {
-		next.include = appendModel(next.include, model);
+		next.include = appendModel(next.include, canonicalModel);
 	}
 	if (update.status === "pending") {
-		next.pending = appendModel(next.pending, model);
+		next.pending = appendModel(next.pending, canonicalModel);
 	}
 	if (update.status === "excluded") {
-		next.exclude = appendModel(next.exclude, model);
+		next.exclude = appendModel(next.exclude, canonicalModel);
 	}
 
 	setModelList(metadata, MANUAL_INCLUDE_KEY, next.include);
@@ -127,7 +134,7 @@ export function resolveChannelModelStatus(
 	metadataJson: string | null | undefined,
 	model: string,
 ): ManualModelStatus {
-	const normalized = String(model ?? "").trim();
+	const normalized = deriveCanonicalModel(model);
 	if (!normalized) {
 		return "auto";
 	}
@@ -183,7 +190,7 @@ export function resolveEffectiveModelIds({
 	const output: string[] = [];
 	const seen = new Set<string>();
 	const addIfAllowed = (model: unknown) => {
-		const normalized = String(model ?? "").trim();
+		const normalized = deriveCanonicalModel(String(model ?? "").trim());
 		if (!normalized || blocked.has(normalized)) {
 			return;
 		}

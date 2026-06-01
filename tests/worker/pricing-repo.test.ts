@@ -18,7 +18,7 @@ function createPricingDb(initialRows: Row[]) {
 			const execute = (params: unknown[]) => ({
 				async all() {
 					if (sql.startsWith("PRAGMA table_info")) {
-						return { results: [{ name: "sync_status" }] };
+						return { results: [{ name: "sync_status" }, { name: "canonical_model" }] };
 					}
 					if (
 						sql.includes(
@@ -48,23 +48,24 @@ function createPricingDb(initialRows: Row[]) {
 						}
 					}
 					if (sql.startsWith("UPDATE model_prices SET")) {
-						const index = rows.findIndex((row) => row.id === params[13]);
+						const index = rows.findIndex((row) => row.id === params[14]);
 						if (index >= 0) {
 							rows[index] = {
 								...rows[index],
 								provider: params[0],
-								model_pattern: params[1],
-								model_name: params[2],
-								currency: params[3],
-								input_price_per_1m: params[4],
-								cache_read_price_per_1m: params[5],
-								cache_write_price_per_1m: params[6],
-								output_price_per_1m: params[7],
-								source: params[8],
-								source_url: params[9],
-								sync_status: params[10],
-								enabled: params[11],
-								updated_at: params[12],
+								canonical_model: params[1],
+								model_pattern: params[2],
+								model_name: params[3],
+								currency: params[4],
+								input_price_per_1m: params[5],
+								cache_read_price_per_1m: params[6],
+								cache_write_price_per_1m: params[7],
+								output_price_per_1m: params[8],
+								source: params[9],
+								source_url: params[10],
+								sync_status: params[11],
+								enabled: params[12],
+								updated_at: params[13],
 							};
 						}
 					}
@@ -72,18 +73,19 @@ function createPricingDb(initialRows: Row[]) {
 						const next = {
 							id: params[0],
 							provider: params[1],
-							model_pattern: params[2],
-							model_name: params[3],
-							currency: params[4],
-							input_price_per_1m: params[5],
-							cache_read_price_per_1m: params[6],
-							cache_write_price_per_1m: params[7],
-							output_price_per_1m: params[8],
-							source: params[9],
-							source_url: params[10],
-							sync_status: params[11],
-							enabled: params[12],
-							updated_at: params[13],
+							canonical_model: params[2],
+							model_pattern: params[3],
+							model_name: params[4],
+							currency: params[5],
+							input_price_per_1m: params[6],
+							cache_read_price_per_1m: params[7],
+							cache_write_price_per_1m: params[8],
+							output_price_per_1m: params[9],
+							source: params[10],
+							source_url: params[11],
+							sync_status: params[12],
+							enabled: params[13],
+							updated_at: params[14],
 						};
 						const index = rows.findIndex(
 							(row) =>
@@ -116,6 +118,7 @@ describe("pricing repository", () => {
 			{
 				id: "sync-1",
 				provider: "openai",
+				canonical_model: "gpt-4o-mini",
 				model_pattern: "gpt-4o-mini",
 				model_name: "gpt-4o-mini",
 				currency: "CNY",
@@ -132,6 +135,7 @@ describe("pricing repository", () => {
 			{
 				id: "manual-1",
 				provider: "openai",
+				canonical_model: "gpt-4o-mini",
 				model_pattern: "gpt-4o-mini",
 				model_name: "gpt-4o-mini",
 				currency: "CNY",
@@ -149,6 +153,7 @@ describe("pricing repository", () => {
 
 		const result = await overrideSyncedModelPriceAsManual(db as never, "sync-1", {
 			provider: "openai",
+			canonical_model: "gpt-4o-mini",
 			model_pattern: "gpt-4o-mini",
 			model_name: "gpt-4o-mini",
 			currency: "CNY",
@@ -182,6 +187,7 @@ describe("pricing repository", () => {
 			{
 				id: "sync-2",
 				provider: "deepseek",
+				canonical_model: "deepseek-chat",
 				model_pattern: "deepseek-chat",
 				model_name: "deepseek-chat",
 				currency: "CNY",
@@ -199,6 +205,7 @@ describe("pricing repository", () => {
 
 		const result = await overrideSyncedModelPriceAsManual(db as never, "sync-2", {
 			provider: "deepseek",
+			canonical_model: "deepseek-chat",
 			model_pattern: "deepseek-chat",
 			model_name: "deepseek-chat",
 			currency: "CNY",

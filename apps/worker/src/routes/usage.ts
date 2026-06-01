@@ -131,8 +131,10 @@ usage.get("/", async (c) => {
 	if (query.model) {
 		const model = String(query.model).trim();
 		if (model) {
-			filters.push("model LIKE ? COLLATE NOCASE");
-			params.push(`%${model}%`);
+			filters.push(
+				"(COALESCE(canonical_model, model) LIKE ? COLLATE NOCASE OR request_model_raw LIKE ? COLLATE NOCASE OR upstream_model_raw LIKE ? COLLATE NOCASE)",
+			);
+			params.push(`%${model}%`, `%${model}%`, `%${model}%`);
 		}
 	}
 	if (query.channel_id) {
@@ -148,7 +150,13 @@ usage.get("/", async (c) => {
 	const models = splitCsv(query.models);
 	applyInFilter("channel_id", channelIds, filters, params);
 	applyInFilter("token_id", tokenIds, filters, params);
-	applyInFilter("model", models, filters, params);
+	if (models.length > 0) {
+		const placeholders = models.map(() => "?").join(", ");
+		filters.push(
+			`(COALESCE(canonical_model, model) IN (${placeholders}) OR request_model_raw IN (${placeholders}) OR upstream_model_raw IN (${placeholders}))`,
+		);
+		params.push(...models, ...models, ...models);
+	}
 
 	if (query.channel) {
 		const channel = String(query.channel).trim();

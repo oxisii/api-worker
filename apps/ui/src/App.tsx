@@ -44,6 +44,9 @@ import {
 } from "./core/sites";
 import type {
 	AdminData,
+	CanonicalModelInput,
+	CanonicalModelItem,
+	CanonicalModelSyncResult,
 	BackupImportMode,
 	BackupManualAction,
 	BackupImportResult,
@@ -84,6 +87,7 @@ import {
 	toggleStatus,
 } from "./core/utils";
 import { AppLayout } from "./features/AppLayout";
+import { CanonicalModelsView } from "./features/CanonicalModelsView";
 import { ChannelsView } from "./features/ChannelsView";
 import { DashboardView } from "./features/DashboardView";
 import { LoginView } from "./features/LoginView";
@@ -112,6 +116,7 @@ const tabToPath: Record<TabId, string> = {
 	dashboard: "/",
 	channels: "/channels",
 	models: "/models",
+	canonicalModels: "/canonical-models",
 	pricing: "/pricing",
 	tokens: "/tokens",
 	usage: "/usage",
@@ -122,6 +127,7 @@ const pathToTab: Record<string, TabId> = {
 	"/": "dashboard",
 	"/channels": "channels",
 	"/models": "models",
+	"/canonical-models": "canonicalModels",
 	"/pricing": "pricing",
 	"/tokens": "tokens",
 	"/usage": "usage",
@@ -212,6 +218,140 @@ const buildRecommendedSettingsForm = (
 	proxy_retry_max_retries: "3",
 	channel_recovery_probe_enabled: true,
 });
+
+const buildSettingsFormFromSettings = (settings: Settings): SettingsForm => {
+	const runtimeSettings = settings.runtime_settings ?? settings.runtime_config;
+	return {
+		log_retention_days: String(settings.log_retention_days ?? 30),
+		session_ttl_hours: String(settings.session_ttl_hours ?? 12),
+		admin_password: "",
+		checkin_schedule_time: settings.checkin_schedule_time ?? "00:10",
+		channel_refresh_enabled: settings.channel_refresh_enabled ?? false,
+		channel_refresh_schedule_time:
+			settings.channel_refresh_schedule_time ?? "02:40",
+		channel_recovery_probe_enabled:
+			settings.channel_recovery_probe_enabled ?? false,
+		channel_recovery_probe_schedule_time:
+			settings.channel_recovery_probe_schedule_time ?? "03:10",
+		proxy_model_failure_cooldown_minutes: String(
+			runtimeSettings?.model_failure_cooldown_minutes ?? 720,
+		),
+		proxy_model_failure_cooldown_threshold: String(
+			runtimeSettings?.model_failure_cooldown_threshold ?? 3,
+		),
+		channel_disable_error_codes:
+			runtimeSettings?.channel_disable_error_codes ?? [
+				"account_deactivated",
+				"insufficient_balance",
+				"insufficient_user_quota",
+				"permission_error",
+			],
+		channel_disable_error_threshold: String(
+			runtimeSettings?.channel_disable_error_threshold ?? 3,
+		),
+		channel_disable_error_code_minutes: String(
+			runtimeSettings?.channel_disable_error_code_minutes ?? 1440,
+		),
+		proxy_upstream_timeout_ms: String(
+			runtimeSettings?.upstream_timeout_ms ?? 180000,
+		),
+		proxy_retry_max_retries: String(runtimeSettings?.retry_max_retries ?? 5),
+		proxy_retry_sleep_ms: String(runtimeSettings?.retry_sleep_ms ?? 500),
+		proxy_retry_sleep_error_codes: runtimeSettings?.retry_sleep_error_codes ?? [
+			"system_cpu_overloaded",
+			"system_disk_overloaded",
+		],
+		proxy_retry_return_error_codes:
+			runtimeSettings?.retry_return_error_codes ?? [
+				"no_available_channels",
+				"upstream_cooldown",
+				"responses_previous_response_id_required",
+				"responses_affinity_missing",
+				"responses_affinity_channel_disabled",
+				"responses_affinity_channel_not_allowed",
+				"responses_affinity_channel_model_unavailable",
+				"responses_affinity_channel_cooldown",
+				"responses_tool_call_chain_mismatch",
+				"invalid_encrypted_content",
+				"invalid_function_parameters",
+			],
+		proxy_zero_completion_as_error_enabled:
+			runtimeSettings?.zero_completion_as_error_enabled ?? true,
+		proxy_stream_usage_mode: runtimeSettings?.stream_usage_mode ?? "lite",
+		proxy_stream_usage_max_parsers: String(
+			runtimeSettings?.stream_usage_max_parsers ?? 0,
+		),
+		proxy_stream_usage_parse_timeout_ms: String(
+			runtimeSettings?.stream_usage_parse_timeout_ms ?? 0,
+		),
+		proxy_responses_affinity_ttl_seconds: String(
+			runtimeSettings?.responses_affinity_ttl_seconds ?? 86400,
+		),
+		proxy_stream_options_capability_ttl_seconds: String(
+			runtimeSettings?.stream_options_capability_ttl_seconds ?? 604800,
+		),
+		proxy_attempt_worker_fallback_enabled:
+			runtimeSettings?.attempt_worker_fallback_enabled ?? true,
+		proxy_attempt_worker_fallback_threshold: String(
+			runtimeSettings?.attempt_worker_fallback_threshold ?? 3,
+		),
+		proxy_large_request_offload_threshold_bytes: String(
+			runtimeSettings?.large_request_offload_threshold_bytes ?? 32768,
+		),
+		site_task_concurrency: String(runtimeSettings?.site_task_concurrency ?? 4),
+		site_task_timeout_ms: String(
+			runtimeSettings?.site_task_timeout_ms ?? 12000,
+		),
+		site_task_fallback_enabled:
+			runtimeSettings?.site_task_fallback_enabled ?? true,
+		pricing_sync_enabled: settings.pricing_settings?.sync_enabled ?? false,
+		pricing_sync_schedule_time:
+			settings.pricing_settings?.sync_schedule_time ?? "04:40",
+		pricing_sync_sources: settings.pricing_settings?.sync_sources ?? [
+			"openai",
+			"anthropic",
+			"gemini",
+			"deepseek",
+			"qwen",
+			"moonshot",
+			"zhipu",
+			"openrouter",
+		],
+		pricing_default_markup: String(
+			settings.pricing_settings?.default_markup ?? 1,
+		),
+		pricing_currency: settings.pricing_settings?.currency ?? "CNY",
+		pricing_usd_cny_rate: String(
+			settings.pricing_settings?.usd_cny_rate ?? 7.2,
+		),
+	};
+};
+
+const isSettingsFormValueEqual = (
+	left: SettingsForm[keyof SettingsForm],
+	right: SettingsForm[keyof SettingsForm],
+) => {
+	if (Array.isArray(left) || Array.isArray(right)) {
+		return JSON.stringify(left) === JSON.stringify(right);
+	}
+	return left === right;
+};
+
+const mergeSettingsFormWithSnapshot = (
+	currentForm: SettingsForm,
+	previousSnapshot: SettingsForm,
+	nextSnapshot: SettingsForm,
+): SettingsForm => {
+	const nextForm = { ...currentForm } as SettingsForm;
+	for (const key of Object.keys(nextSnapshot) as Array<keyof SettingsForm>) {
+		if (isSettingsFormValueEqual(currentForm[key], previousSnapshot[key])) {
+			(
+				nextForm as Record<keyof SettingsForm, SettingsForm[keyof SettingsForm]>
+			)[key] = nextSnapshot[key];
+		}
+	}
+	return nextForm;
+};
 
 const dashboardPresetDays: Record<DashboardQuery["preset"], number> = {
 	all: 0,
@@ -362,7 +502,13 @@ const App = () => {
 		useState<SettingsForm>(initialSettingsForm);
 	const [settingsFormSnapshot, setSettingsFormSnapshot] =
 		useState<SettingsForm>(initialSettingsForm);
+	const settingsFormSnapshotRef = useRef<SettingsForm>(initialSettingsForm);
 	const [modelPrices, setModelPrices] = useState<ModelPrice[]>([]);
+	const [canonicalModels, setCanonicalModels] = useState<CanonicalModelItem[]>(
+		[],
+	);
+	const [canonicalModelSyncResult, setCanonicalModelSyncResult] =
+		useState<CanonicalModelSyncResult | null>(null);
 	const [lastPricingSyncResult, setLastPricingSyncResult] =
 		useState<PricingSyncResult | null>(null);
 	const [backupSettings, setBackupSettings] = useState<BackupSettings>(
@@ -473,6 +619,10 @@ const App = () => {
 			noticeTimersRef.current.clear();
 		};
 	}, []);
+
+	useEffect(() => {
+		settingsFormSnapshotRef.current = settingsFormSnapshot;
+	}, [settingsFormSnapshot]);
 
 	const startAction = useCallback((key: string) => {
 		if (pendingActionsRef.current.has(key)) {
@@ -660,6 +810,13 @@ const App = () => {
 		setModelPrices(result.prices);
 	}, [apiFetch]);
 
+	const loadCanonicalModels = useCallback(async () => {
+		const result = await apiFetch<{ items: CanonicalModelItem[] }>(
+			"/api/canonical-models",
+		);
+		setCanonicalModels(result.items);
+	}, [apiFetch]);
+
 	const loadTokens = useCallback(async () => {
 		const result = await apiFetch<{ tokens: Token[] }>("/api/tokens");
 		setData((prev) => ({ ...prev, tokens: result.tokens }));
@@ -716,6 +873,16 @@ const App = () => {
 		setData((prev) => ({ ...prev, settings }));
 	}, [apiFetch]);
 
+	const loadPricingContext = useCallback(async () => {
+		await Promise.all([loadSettings(), loadPricingModels()]);
+	}, [loadPricingModels, loadSettings]);
+
+	const pricingCurrency =
+		data.settings?.pricing_settings?.currency ?? settingsForm.pricing_currency;
+	const pricingSyncSources =
+		data.settings?.pricing_settings?.sync_sources ??
+		settingsForm.pricing_sync_sources;
+
 	const loadRetryErrorCodes = useCallback(async () => {
 		const result = await apiFetch<{
 			items?: Array<{ error_code?: string | null }>;
@@ -750,8 +917,11 @@ const App = () => {
 				if (tabId === "models") {
 					await loadModels();
 				}
+				if (tabId === "canonicalModels") {
+					await loadCanonicalModels();
+				}
 				if (tabId === "pricing") {
-					await loadPricingModels();
+					await loadPricingContext();
 				}
 				if (tabId === "tokens") {
 					await Promise.all([loadTokens(), loadSites()]);
@@ -779,8 +949,10 @@ const App = () => {
 		},
 		[
 			dismissNotice,
+			loadCanonicalModels,
 			loadDashboard,
 			loadModels,
+			loadPricingContext,
 			loadPricingModels,
 			loadRetryErrorCodes,
 			loadBackupSettings,
@@ -813,117 +985,14 @@ const App = () => {
 		if (!data.settings) {
 			return;
 		}
-		const runtimeSettings =
-			data.settings.runtime_settings ?? data.settings.runtime_config;
-		const nextSettingsForm: SettingsForm = {
-			log_retention_days: String(data.settings.log_retention_days ?? 30),
-			session_ttl_hours: String(data.settings.session_ttl_hours ?? 12),
-			admin_password: "",
-			checkin_schedule_time: data.settings.checkin_schedule_time ?? "00:10",
-			channel_refresh_enabled: data.settings.channel_refresh_enabled ?? false,
-			channel_refresh_schedule_time:
-				data.settings.channel_refresh_schedule_time ?? "02:40",
-			channel_recovery_probe_enabled:
-				data.settings.channel_recovery_probe_enabled ?? false,
-			channel_recovery_probe_schedule_time:
-				data.settings.channel_recovery_probe_schedule_time ?? "03:10",
-			proxy_model_failure_cooldown_minutes: String(
-				runtimeSettings?.model_failure_cooldown_minutes ?? 720,
+		const nextSettingsForm = buildSettingsFormFromSettings(data.settings);
+		setSettingsForm((prev) =>
+			mergeSettingsFormWithSnapshot(
+				prev ?? initialSettingsForm,
+				settingsFormSnapshotRef.current ?? initialSettingsForm,
+				nextSettingsForm,
 			),
-			proxy_model_failure_cooldown_threshold: String(
-				runtimeSettings?.model_failure_cooldown_threshold ?? 3,
-			),
-			channel_disable_error_codes:
-				runtimeSettings?.channel_disable_error_codes ?? [
-					"account_deactivated",
-					"insufficient_balance",
-					"insufficient_user_quota",
-					"permission_error",
-				],
-			channel_disable_error_threshold: String(
-				runtimeSettings?.channel_disable_error_threshold ?? 3,
-			),
-			channel_disable_error_code_minutes: String(
-				runtimeSettings?.channel_disable_error_code_minutes ?? 1440,
-			),
-			proxy_upstream_timeout_ms: String(
-				runtimeSettings?.upstream_timeout_ms ?? 180000,
-			),
-			proxy_retry_max_retries: String(runtimeSettings?.retry_max_retries ?? 5),
-			proxy_retry_sleep_ms: String(runtimeSettings?.retry_sleep_ms ?? 500),
-			proxy_retry_sleep_error_codes:
-				runtimeSettings?.retry_sleep_error_codes ?? [
-					"system_cpu_overloaded",
-					"system_disk_overloaded",
-				],
-			proxy_retry_return_error_codes:
-				runtimeSettings?.retry_return_error_codes ?? [
-					"no_available_channels",
-					"upstream_cooldown",
-					"responses_previous_response_id_required",
-					"responses_affinity_missing",
-					"responses_affinity_channel_disabled",
-					"responses_affinity_channel_not_allowed",
-					"responses_affinity_channel_model_unavailable",
-					"responses_affinity_channel_cooldown",
-					"responses_tool_call_chain_mismatch",
-					"invalid_encrypted_content",
-					"invalid_function_parameters",
-				],
-			proxy_zero_completion_as_error_enabled:
-				runtimeSettings?.zero_completion_as_error_enabled ?? true,
-			proxy_stream_usage_mode: runtimeSettings?.stream_usage_mode ?? "lite",
-			proxy_stream_usage_max_parsers: String(
-				runtimeSettings?.stream_usage_max_parsers ?? 0,
-			),
-			proxy_stream_usage_parse_timeout_ms: String(
-				runtimeSettings?.stream_usage_parse_timeout_ms ?? 0,
-			),
-			proxy_responses_affinity_ttl_seconds: String(
-				runtimeSettings?.responses_affinity_ttl_seconds ?? 86400,
-			),
-			proxy_stream_options_capability_ttl_seconds: String(
-				runtimeSettings?.stream_options_capability_ttl_seconds ?? 604800,
-			),
-			proxy_attempt_worker_fallback_enabled:
-				runtimeSettings?.attempt_worker_fallback_enabled ?? true,
-			proxy_attempt_worker_fallback_threshold: String(
-				runtimeSettings?.attempt_worker_fallback_threshold ?? 3,
-			),
-			proxy_large_request_offload_threshold_bytes: String(
-				runtimeSettings?.large_request_offload_threshold_bytes ?? 32768,
-			),
-			site_task_concurrency: String(
-				runtimeSettings?.site_task_concurrency ?? 4,
-			),
-			site_task_timeout_ms: String(
-				runtimeSettings?.site_task_timeout_ms ?? 12000,
-			),
-			site_task_fallback_enabled:
-				runtimeSettings?.site_task_fallback_enabled ?? true,
-			pricing_sync_enabled:
-				data.settings.pricing_settings?.sync_enabled ?? false,
-			pricing_sync_schedule_time:
-				data.settings.pricing_settings?.sync_schedule_time ?? "04:40",
-			pricing_sync_sources: data.settings.pricing_settings?.sync_sources ?? [
-				"openai",
-				"anthropic",
-				"gemini",
-				"deepseek",
-				"qwen",
-				"moonshot",
-				"zhipu",
-				"openrouter",
-			],
-			pricing_default_markup: String(
-				data.settings.pricing_settings?.default_markup ?? 1,
-			),
-			pricing_currency: data.settings.pricing_settings?.currency ?? "CNY",
-			pricing_usd_cny_rate: String(
-				data.settings.pricing_settings?.usd_cny_rate ?? 7.2,
-			),
-		};
-		setSettingsForm(nextSettingsForm);
+		);
 		setSettingsFormSnapshot(nextSettingsForm);
 		setLastPricingSyncResult(
 			data.settings.pricing_settings?.last_sync_result ?? null,
@@ -2777,11 +2846,11 @@ const App = () => {
 			const result = await apiFetch<PricingSyncResult>("/api/pricing/sync", {
 				method: "POST",
 				body: JSON.stringify({
-					sources: settingsForm.pricing_sync_sources.filter(Boolean),
+					sources: pricingSyncSources.filter(Boolean),
 				}),
 			});
 			setLastPricingSyncResult(result);
-			await loadPricingModels();
+			await loadPricingContext();
 			const total = result.items.reduce((sum, item) => sum + item.count, 0);
 			const exactTotal = result.items.reduce(
 				(sum, item) => sum + (item.exact_count ?? 0),
@@ -2806,11 +2875,189 @@ const App = () => {
 		apiFetch,
 		endAction,
 		isActionPending,
-		loadPricingModels,
+		loadPricingContext,
+		pricingSyncSources,
 		pushNotice,
-		settingsForm.pricing_sync_sources,
 		startAction,
 	]);
+
+	const handlePricingCurrencyChange = useCallback(
+		async (currency: "USD" | "CNY") => {
+			if (currency === pricingCurrency) {
+				return;
+			}
+			const actionKey = buildActionKey("pricing:currency");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/settings", {
+					method: "PUT",
+					body: JSON.stringify({
+						pricing_currency: currency,
+					}),
+				});
+				await loadPricingContext();
+				pushNotice("success", `价格货币已切换为 ${currency}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingContext,
+			pricingCurrency,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleCanonicalModelCreate = useCallback(
+		async (payload: CanonicalModelInput) => {
+			const actionKey = buildActionKey("canonical-model:create");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/canonical-models", {
+					method: "POST",
+					body: JSON.stringify(payload),
+				});
+				await loadCanonicalModels();
+				pushNotice("success", "统一模型已保存");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleCanonicalModelSync = useCallback(async () => {
+		const actionKey = buildActionKey("canonical-model:sync");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const result = await apiFetch<CanonicalModelSyncResult>(
+				"/api/canonical-models/sync",
+				{
+					method: "POST",
+				},
+			);
+			setCanonicalModelSyncResult(result);
+			await loadCanonicalModels();
+			pushNotice(
+				result.conflicts.length > 0 || result.invalid_rules.length > 0
+					? "warning"
+					: "success",
+				`同步完成：新增 ${result.imported} 条，冲突 ${result.conflicts.length} 条，无效规则 ${result.invalid_rules.length} 条`,
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadCanonicalModels,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleCanonicalModelUpdate = useCallback(
+		async (canonicalModel: string, payload: CanonicalModelInput) => {
+			const actionKey = buildActionKey("canonical-model:update");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(
+					`/api/canonical-models/${encodeURIComponent(canonicalModel)}`,
+					{
+						method: "PATCH",
+						body: JSON.stringify(payload),
+					},
+				);
+				await loadCanonicalModels();
+				pushNotice("success", "统一模型已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const requestCanonicalModelDelete = useCallback(
+		(item: CanonicalModelItem) => {
+			openConfirm({
+				title: "删除统一模型",
+				message: `确定删除 ${item.canonical_model} 吗？`,
+				confirmLabel: "删除",
+				tone: "error",
+				onConfirm: async () => {
+					const actionKey = buildActionKey(
+						"canonical-model:delete",
+						item.canonical_model,
+					);
+					if (isActionPending(actionKey)) {
+						return;
+					}
+					startAction(actionKey);
+					try {
+						await apiFetch(
+							`/api/canonical-models/${encodeURIComponent(item.canonical_model)}`,
+							{
+								method: "DELETE",
+							},
+						);
+						await loadCanonicalModels();
+						pushNotice("success", "统一模型已删除");
+					} catch (error) {
+						pushNotice("error", (error as Error).message);
+					} finally {
+						endAction(actionKey);
+					}
+				},
+			});
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			openConfirm,
+			pushNotice,
+			startAction,
+		],
+	);
 
 	const handlePricingCreate = useCallback(
 		async (payload: ModelPriceInput) => {
@@ -3050,13 +3297,33 @@ const App = () => {
 		if (activeTab === "models") {
 			return <ModelsView models={data.models} />;
 		}
+		if (activeTab === "canonicalModels") {
+			return (
+				<CanonicalModelsView
+					items={canonicalModels}
+					isSaving={
+						isActionPending(buildActionKey("canonical-model:create")) ||
+						isActionPending(buildActionKey("canonical-model:update"))
+					}
+					isSyncing={isActionPending(buildActionKey("canonical-model:sync"))}
+					syncResult={canonicalModelSyncResult}
+					onCreate={handleCanonicalModelCreate}
+					onUpdate={handleCanonicalModelUpdate}
+					onDelete={requestCanonicalModelDelete}
+					onSync={handleCanonicalModelSync}
+				/>
+			);
+		}
 		if (activeTab === "pricing") {
 			return (
 				<PricingView
 					prices={modelPrices}
-					pricingCurrency={settingsForm.pricing_currency}
+					pricingCurrency={pricingCurrency}
 					lastPricingSyncResult={lastPricingSyncResult}
 					isPricingSyncing={isActionPending(buildActionKey("pricing:sync"))}
+					isPricingCurrencySaving={isActionPending(
+						buildActionKey("pricing:currency"),
+					)}
 					isPricingSaving={
 						isActionPending(buildActionKey("pricing:create")) ||
 						modelPrices.some((price) =>
@@ -3064,6 +3331,7 @@ const App = () => {
 						)
 					}
 					onPricingSync={handlePricingSync}
+					onPricingCurrencyChange={handlePricingCurrencyChange}
 					onPricingCreate={handlePricingCreate}
 					onPricingUpdate={handlePricingUpdate}
 					onPricingDelete={requestPricingDelete}

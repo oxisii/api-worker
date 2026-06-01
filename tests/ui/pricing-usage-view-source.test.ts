@@ -28,12 +28,17 @@ describe("pricing and usage view source contracts", () => {
 		expect(pricingViewSource).toContain("普通输入 / 1M tokens");
 		expect(pricingViewSource).toContain("缓存读/写 / 1M tokens");
 		expect(pricingViewSource).toContain("输出 / 1M tokens");
-		expect(pricingViewSource).toContain("单位：每 1M tokens");
+		expect(pricingViewSource).toContain("单位：{pricingCurrency} / 每 1M tokens");
 	});
 
 	it("价格中心提供明确添加入口和表格筛选", () => {
 		expect(pricingViewSource).toContain("添加价格");
 		expect(pricingViewSource).toContain("计费匹配规则");
+		expect(pricingViewSource).toContain("可直接切换");
+		expect(pricingViewSource).toContain("USD/CNY");
+		expect(pricingViewSource).toContain("pricingCurrencyOptions");
+		expect(pricingViewSource).toContain("onPricingCurrencyChange");
+		expect(pricingViewSource).toContain("目标币种");
 		expect(pricingViewSource).not.toContain("展示名称");
 		expect(pricingViewSource).toContain("<Dialog");
 		expect(pricingViewSource).toContain("DialogTitle");

@@ -3,6 +3,8 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		ordered,
 		callTokenMap,
 		downstreamModel,
+		canonicalModel,
+		requestModelRaw,
 		verifiedModelsByChannel,
 		endpointType,
 		downstreamProvider,
@@ -90,6 +92,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		selectedUpstreamProvider,
 		selectedUpstreamEndpoint,
 		selectedUpstreamModel,
+		selectedCanonicalModel,
 		selectedRequestPath,
 		selectedImmediateUsage,
 		selectedImmediateUsageSource,
@@ -119,6 +122,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		selectedUpstreamProvider,
 		selectedUpstreamEndpoint,
 		selectedUpstreamModel,
+		selectedCanonicalModel,
 		selectedRequestPath,
 		selectedImmediateUsage,
 		selectedImmediateUsageSource,
@@ -195,6 +199,8 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				upstreamProvider: preparedAttempt.upstreamProvider as any,
 				upstreamModel: preparedAttempt.upstreamModel,
 				recordModel: preparedAttempt.recordModel,
+				canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+				requestModelRaw,
 				tokenSelection: preparedAttempt.tokenSelection,
 				attemptStartedAt,
 				streamOptionsHandled: preparedAttempt.streamOptionsHandled,
@@ -382,12 +388,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 								failureReason: abnormalResponse.errorCode,
 								usageSource: "none",
 								errorMetaJson: failureDecision.errorMetaJson,
+								canonicalModel: meta.canonicalModel ?? canonicalModel,
+								requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+								upstreamModelRaw: meta.upstreamModel ?? null,
 							});
 							recordAttemptLog({
 								attemptIndex: attemptNumber,
 								channelId: meta.channel.id,
 								provider: meta.upstreamProvider,
 								model: meta.upstreamModel ?? downstreamModel,
+								canonicalModel: meta.canonicalModel ?? canonicalModel,
+								requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+								upstreamModelRaw: meta.upstreamModel ?? null,
 								status: "error",
 								errorClass: "upstream_response",
 								errorCode: abnormalResponse.errorCode,
@@ -476,12 +488,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 									failureReason: usageMissingCode,
 									usageSource: immediateUsageSource,
 									errorMetaJson: failureDecision.errorMetaJson,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
+									requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+									upstreamModelRaw: meta.upstreamModel ?? null,
 								});
 								recordAttemptLog({
 									attemptIndex: attemptNumber,
 									channelId: meta.channel.id,
 									provider: meta.upstreamProvider,
 									model: meta.upstreamModel ?? downstreamModel,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
+									requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+									upstreamModelRaw: meta.upstreamModel ?? null,
 									status: "error",
 									errorClass: "usage_finalize",
 									errorCode: usageMissingCode,
@@ -550,12 +568,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 									failureReason: zeroCompletion.errorCode,
 									usageSource: immediateUsageSource,
 									errorMetaJson: failureDecision.errorMetaJson,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
+									requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+									upstreamModelRaw: meta.upstreamModel ?? null,
 								});
 								recordAttemptLog({
 									attemptIndex: attemptNumber,
 									channelId: meta.channel.id,
 									provider: meta.upstreamProvider,
 									model: meta.upstreamModel ?? downstreamModel,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
+									requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+									upstreamModelRaw: meta.upstreamModel ?? null,
 									status: "error",
 									errorClass: "usage_finalize",
 									errorCode: zeroCompletion.errorCode,
@@ -608,6 +632,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 									channelId: meta.channel.id,
 									provider: meta.upstreamProvider,
 									model: meta.upstreamModel ?? downstreamModel,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
+									requestModelRaw: meta.requestModelRaw ?? requestModelRaw,
+									upstreamModelRaw: meta.upstreamModel ?? null,
 									status: "ok",
 									httpStatus: response.status,
 									latencyMs: attemptLatencyMs,
@@ -621,6 +648,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 									responsePath,
 									fallbackEndpointType: endpointType,
 									upstreamModel: meta.upstreamModel,
+									canonicalModel: meta.canonicalModel ?? canonicalModel,
 									immediateUsage,
 									immediateUsageSource,
 									hasAnyUsageSignal,
@@ -638,6 +666,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 								selectedUpstreamEndpoint =
 									selectedState.selectedUpstreamEndpoint;
 								selectedUpstreamModel = selectedState.selectedUpstreamModel;
+								selectedCanonicalModel = selectedState.selectedCanonicalModel;
 								selectedResponse = response;
 								selectedRequestPath = selectedState.selectedRequestPath;
 								selectedImmediateUsage = selectedState.selectedImmediateUsage;
@@ -658,12 +687,16 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 								selectedAttemptUpstreamRequestId =
 									selectedState.selectedAttemptUpstreamRequestId;
 								lastErrorDetails = null;
-								if (meta.recordModel) {
+								if (meta.recordModel || meta.upstreamModel || downstreamModel) {
 									scheduleUsageEvent({
 										type: "capability_upsert",
 										payload: {
 											channelId: meta.channel.id,
-											models: [meta.recordModel],
+											models: [
+												meta.upstreamModel ??
+													meta.recordModel ??
+													downstreamModel,
+											].filter(Boolean) as string[],
 											nowSeconds,
 										},
 									});
@@ -924,12 +957,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 						failureReason: attemptResult.errorCode,
 						usageSource: "none",
 						errorMetaJson: failureDecision.errorMetaJson,
+						canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+						requestModelRaw,
+						upstreamModelRaw: upstreamModel ?? null,
 					});
 					recordAttemptLog({
 						attemptIndex: attemptNumber,
 						channelId: channel.id,
 						provider: upstreamProvider,
 						model: upstreamModel ?? downstreamModel,
+						canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+						requestModelRaw,
+						upstreamModelRaw: upstreamModel ?? null,
 						status: "error",
 						errorClass:
 							attemptResult.kind === "attempt_worker_error"
@@ -1060,12 +1099,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 								failureReason: retried.errorCode,
 								usageSource: "none",
 								errorMetaJson: failureDecision.errorMetaJson,
+								canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+								requestModelRaw,
+								upstreamModelRaw: upstreamModel ?? null,
 							});
 							recordAttemptLog({
 								attemptIndex: attemptNumber,
 								channelId: channel.id,
 								provider: upstreamProvider,
 								model: upstreamModel ?? downstreamModel,
+								canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+								requestModelRaw,
+								upstreamModelRaw: upstreamModel ?? null,
 								status: "error",
 								errorClass:
 									retried.kind === "attempt_worker_error"
@@ -1223,12 +1268,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 							failureReason: abnormalResponse.errorCode,
 							usageSource: "none",
 							errorMetaJson: failureDecision.errorMetaJson,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 						});
 						recordAttemptLog({
 							attemptIndex: attemptNumber,
 							channelId: channel.id,
 							provider: upstreamProvider,
 							model: upstreamModel ?? downstreamModel,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 							status: "error",
 							errorClass: "upstream_response",
 							errorCode: abnormalResponse.errorCode,
@@ -1318,12 +1369,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 							failureReason: usageMissingCode,
 							usageSource: immediateUsageSource,
 							errorMetaJson: failureDecision.errorMetaJson,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 						});
 						recordAttemptLog({
 							attemptIndex: attemptNumber,
 							channelId: channel.id,
 							provider: upstreamProvider,
 							model: upstreamModel ?? downstreamModel,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 							status: "error",
 							errorClass: "usage_finalize",
 							errorCode: usageMissingCode,
@@ -1394,12 +1451,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 							failureReason: zeroCompletion.errorCode,
 							usageSource: immediateUsageSource,
 							errorMetaJson: failureDecision.errorMetaJson,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 						});
 						recordAttemptLog({
 							attemptIndex: attemptNumber,
 							channelId: channel.id,
 							provider: upstreamProvider,
 							model: upstreamModel ?? downstreamModel,
+							canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+							requestModelRaw,
+							upstreamModelRaw: upstreamModel ?? null,
 							status: "error",
 							errorClass: "usage_finalize",
 							errorCode: zeroCompletion.errorCode,
@@ -1444,6 +1507,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 						channelId: channel.id,
 						provider: upstreamProvider,
 						model: upstreamModel ?? downstreamModel,
+						canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+						requestModelRaw,
+						upstreamModelRaw: upstreamModel ?? null,
 						status: "ok",
 						httpStatus: response.status,
 						latencyMs: attemptLatencyMs,
@@ -1467,6 +1533,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 						responsePath,
 						fallbackEndpointType: endpointType,
 						upstreamModel,
+						canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
 						immediateUsage,
 						immediateUsageSource,
 						hasAnyUsageSignal,
@@ -1481,6 +1548,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 					selectedUpstreamProvider = selectedState.selectedUpstreamProvider;
 					selectedUpstreamEndpoint = selectedState.selectedUpstreamEndpoint;
 					selectedUpstreamModel = selectedState.selectedUpstreamModel;
+					selectedCanonicalModel = selectedState.selectedCanonicalModel;
 					selectedResponse = response;
 					selectedRequestPath = selectedState.selectedRequestPath;
 					selectedImmediateUsage = selectedState.selectedImmediateUsage;
@@ -1495,12 +1563,14 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 					selectedAttemptUpstreamRequestId =
 						selectedState.selectedAttemptUpstreamRequestId;
 					lastErrorDetails = null;
-					if (recordModel) {
+					if (recordModel || upstreamModel || downstreamModel) {
 						scheduleUsageEvent({
 							type: "capability_upsert",
 							payload: {
 								channelId: channel.id,
-								models: [recordModel],
+								models: [
+									upstreamModel ?? recordModel ?? downstreamModel,
+								].filter(Boolean) as string[],
 								nowSeconds,
 							},
 						});
@@ -1558,12 +1628,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 					failureReason: evaluatedFailure.finalErrorCode,
 					usageSource: failureUsage.usageSource,
 					errorMetaJson: failureDecision.errorMetaJson,
+					canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+					requestModelRaw,
+					upstreamModelRaw: upstreamModel ?? null,
 				});
 				recordAttemptLog({
 					attemptIndex: attemptNumber,
 					channelId: channel.id,
 					provider: upstreamProvider,
 					model: upstreamModel ?? downstreamModel,
+					canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+					requestModelRaw,
+					upstreamModelRaw: upstreamModel ?? null,
 					status: "error",
 					errorClass: evaluatedFailure.errorClass,
 					errorCode: evaluatedFailure.finalErrorCode,
@@ -1655,12 +1731,18 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 					failureReason: usageErrorCode,
 					usageSource: "none",
 					errorMetaJson: failureDecision.errorMetaJson,
+					canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+					requestModelRaw,
+					upstreamModelRaw: upstreamModel ?? null,
 				});
 				recordAttemptLog({
 					attemptIndex: attemptNumber,
 					channelId: channel.id,
 					provider: upstreamProvider,
 					model: upstreamModel ?? downstreamModel,
+					canonicalModel: attemptTarget.canonicalModel ?? canonicalModel,
+					requestModelRaw,
+					upstreamModelRaw: upstreamModel ?? null,
 					status: "error",
 					errorClass: fetchFailure.isTimeout ? "timeout" : "exception",
 					errorCode: usageErrorCode,

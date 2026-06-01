@@ -4,6 +4,10 @@ import type {
 	ModelPriceRecord,
 	ModelPriceSource,
 } from "./types";
+import {
+	canonicalModelEquals,
+	deriveCanonicalModel,
+} from "../model-normalization";
 
 const SOURCE_PRIORITY: Record<ModelPriceSource, number> = {
 	manual: 3,
@@ -41,11 +45,15 @@ export function resolveModelPrice(
 	prices: ModelPriceRecord[],
 	model: string | null | undefined,
 ): ModelPriceRecord | null {
+	const canonicalModel = deriveCanonicalModel(model);
 	const candidates = prices.filter(
 		(item) =>
 			item.enabled !== 0 &&
 			item.source !== ("builtin" as ModelPriceSource) &&
-			modelPatternMatches(item.model_pattern, model),
+			((item.canonical_model &&
+				canonicalModel &&
+				canonicalModelEquals(item.canonical_model, canonicalModel)) ||
+				modelPatternMatches(item.model_pattern, model)),
 	);
 	candidates.sort((left, right) => {
 		const sourceDelta =
@@ -124,8 +132,11 @@ export function calculateUsageCharge(input: {
 		price,
 		detail: {
 			model: input.model ?? null,
+			canonical_model:
+				price.canonical_model ?? deriveCanonicalModel(input.model),
 			price_id: price.id,
 			provider: price.provider,
+			price_canonical_model: price.canonical_model,
 			model_pattern: price.model_pattern,
 			source: price.source,
 			markup,

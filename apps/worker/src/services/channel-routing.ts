@@ -3,6 +3,7 @@ import {
 	parseChannelMetadata,
 	resolveMappedModel,
 } from "./channel-metadata";
+import { deriveCanonicalModel } from "./model-normalization";
 import {
 	parseManualModelConfig,
 	resolveEffectiveModelIds,
@@ -10,11 +11,7 @@ import {
 import type { ChannelRecord } from "./channel-types";
 
 function normalizeKnownModel(value: string | null | undefined): string | null {
-	if (!value) {
-		return null;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : null;
+	return deriveCanonicalModel(value);
 }
 
 function hasExplicitModelMapping(
@@ -22,8 +19,10 @@ function hasExplicitModelMapping(
 	downstreamModel: string | null,
 ): boolean {
 	if (downstreamModel) {
+		const canonicalModel =
+			deriveCanonicalModel(downstreamModel) ?? downstreamModel;
 		return (
-			metadata.model_mapping[downstreamModel] !== undefined ||
+			metadata.model_mapping[canonicalModel] !== undefined ||
 			metadata.model_mapping["*"] !== undefined
 		);
 	}
@@ -61,8 +60,10 @@ export function resolveUpstreamModelForChannel(
 	if (knownModels.length === 0) {
 		return { model: null, autoMapped: false };
 	}
-	if (knownModels.includes(downstreamModel)) {
-		return { model: downstreamModel, autoMapped: false };
+	const canonicalModel =
+		deriveCanonicalModel(downstreamModel) ?? downstreamModel;
+	if (knownModels.includes(canonicalModel)) {
+		return { model: mapped ?? downstreamModel, autoMapped: false };
 	}
 	return { model: null, autoMapped: false };
 }
@@ -87,9 +88,12 @@ function channelSupportsModel(
 	}
 	const manual = parseManualModelConfig(channel.metadata_json);
 	const excludedModels = new Set(manual.exclude);
+	const canonicalModel = deriveCanonicalModel(model) ?? model;
+	const canonicalResolvedModel =
+		deriveCanonicalModel(resolved.model) ?? resolved.model;
 	if (
-		(model && excludedModels.has(model)) ||
-		(resolved.model && excludedModels.has(resolved.model))
+		(canonicalModel && excludedModels.has(canonicalModel)) ||
+		(canonicalResolvedModel && excludedModels.has(canonicalResolvedModel))
 	) {
 		return false;
 	}
@@ -103,7 +107,9 @@ function channelSupportsModel(
 	if (knownModels.length === 0) {
 		return false;
 	}
-	return knownModels.includes(resolved.model);
+	return canonicalResolvedModel
+		? knownModels.includes(canonicalResolvedModel)
+		: false;
 }
 
 export function selectCandidateChannels(
