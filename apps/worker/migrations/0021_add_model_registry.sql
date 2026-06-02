@@ -61,7 +61,7 @@ UPDATE channel_model_capabilities
 SET canonical_model = COALESCE(NULLIF(TRIM(canonical_model), ''), LOWER(TRIM(model)))
 WHERE canonical_model IS NULL;
 
-INSERT INTO model_registry (canonical_model, display_name, provider_hint, created_at, updated_at)
+INSERT OR IGNORE INTO model_registry (canonical_model, display_name, provider_hint, created_at, updated_at)
 SELECT DISTINCT
   canonical_model,
   canonical_model,
@@ -76,10 +76,9 @@ FROM (
   SELECT canonical_model FROM model_prices WHERE canonical_model IS NOT NULL AND TRIM(canonical_model) != ''
   UNION
   SELECT canonical_model FROM channel_model_capabilities WHERE canonical_model IS NOT NULL AND TRIM(canonical_model) != ''
-)
-ON CONFLICT(canonical_model) DO NOTHING;
+);
 
-INSERT INTO model_aliases (alias, provider_hint, canonical_model, created_at, updated_at)
+INSERT OR IGNORE INTO model_aliases (alias, provider_hint, canonical_model, created_at, updated_at)
 SELECT DISTINCT
   LOWER(TRIM(alias_value)) AS alias,
   '' AS provider_hint,
@@ -108,8 +107,7 @@ FROM (
 WHERE alias_value IS NOT NULL
   AND TRIM(alias_value) != ''
   AND canonical_model IS NOT NULL
-  AND TRIM(canonical_model) != ''
-ON CONFLICT(alias, provider_hint) DO NOTHING;
+  AND TRIM(canonical_model) != '';
 
 CREATE INDEX IF NOT EXISTS idx_usage_logs_canonical_model
   ON usage_logs (canonical_model);
