@@ -36,23 +36,42 @@ export type SiteChannelRefreshBatchReport = {
 	runs_at: string;
 };
 
+export type SiteTaskProgress = {
+	total: number;
+	completed: number;
+	success: number;
+	warning: number;
+	failed: number;
+	skipped: number;
+	current_site_id?: string | null;
+	current_site_name?: string | null;
+	updated_at: string;
+};
+
+type SiteTaskReportBase = {
+	kind: SiteTaskKind;
+	status: "running" | "completed" | "failed";
+	runs_at: string;
+	started_at: string;
+	finished_at?: string | null;
+	progress: SiteTaskProgress;
+	error_message?: string | null;
+};
+
 export type SiteTaskReportState =
-	| {
+	| (SiteTaskReportBase & {
 			kind: "checkin";
-			runs_at: string;
 			summary: CheckinSummary;
 			items: CheckinResultItem[];
-	  }
-	| {
+	  })
+	| (SiteTaskReportBase & {
 			kind: "verify-active" | "verify-disabled";
-			runs_at: string;
 			report: SiteVerificationBatchResult;
-	  }
-	| {
+	  })
+	| (SiteTaskReportBase & {
 			kind: "refresh-active";
-			runs_at: string;
 			report: SiteChannelRefreshBatchReport;
-	  };
+	  });
 
 export type SiteTaskReportMap = Partial<
 	Record<SiteTaskKind, SiteTaskReportState>
@@ -77,6 +96,125 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeLegacyProgress(
+	kind: SiteTaskKind,
+	parsed: Record<string, unknown>,
+	runsAt: string,
+): SiteTaskProgress | null {
+	if (kind === "checkin") {
+		if (!isRecord(parsed.summary) || !Array.isArray(parsed.items)) {
+			return null;
+		}
+		return {
+			total: Number(parsed.summary.total ?? parsed.items.length ?? 0),
+			completed: Number(parsed.summary.total ?? parsed.items.length ?? 0),
+			success: Number(parsed.summary.success ?? 0),
+			warning: 0,
+			failed: Number(parsed.summary.failed ?? 0),
+			skipped: Number(parsed.summary.skipped ?? 0),
+			current_site_id: null,
+			current_site_name: null,
+			updated_at: runsAt,
+		};
+	}
+	if (!isRecord(parsed.report)) {
+		return null;
+	}
+	if (kind === "verify-active" || kind === "verify-disabled") {
+		const summary = isRecord(parsed.report.summary)
+			? parsed.report.summary
+			: {};
+		return {
+			total: Number(summary.total ?? 0),
+			completed: Number(summary.total ?? 0),
+			success:
+				kind === "verify-active"
+					? Number(summary.serving ?? 0)
+					: Number(summary.recoverable ?? 0),
+			warning: kind === "verify-active" ? Number(summary.degraded ?? 0) : 0,
+			failed:
+				kind === "verify-active"
+					? Number(summary.failed ?? 0)
+					: Number(summary.not_recoverable ?? 0) + Number(summary.failed ?? 0),
+			skipped: Number(summary.skipped ?? 0),
+			current_site_id: null,
+			current_site_name: null,
+			updated_at: runsAt,
+		};
+	}
+	const summary = isRecord(parsed.report.summary) ? parsed.report.summary : {};
+	return {
+		total: Number(summary.total ?? 0),
+		completed: Number(summary.total ?? 0),
+		success: Number(summary.success ?? 0),
+		warning: Number(summary.warning ?? 0),
+		failed: Number(summary.failed ?? 0),
+		skipped: 0,
+		current_site_id: null,
+		current_site_name: null,
+		updated_at: runsAt,
+	};
+}
+
+function normalizeSiteTaskReportState(
+	kind: SiteTaskKind,
+	parsed: Record<string, unknown>,
+): SiteTaskReportState | null {
+	const runsAt = String(parsed.runs_at ?? "").trim();
+	if (!runsAt) {
+		return null;
+	}
+	const legacyProgress = normalizeLegacyProgress(kind, parsed, runsAt);
+	if (!legacyProgress) {
+		return null;
+	}
+	if (
+		parsed.status !== "running" &&
+		parsed.status !== "completed" &&
+		parsed.status !== "failed"
+	) {
+		return {
+			...(parsed as Omit<
+				SiteTaskReportState,
+				"status" | "started_at" | "progress"
+			>),
+			status: "completed",
+			started_at: runsAt,
+			finished_at: runsAt,
+			progress: legacyProgress,
+			error_message: null,
+		} as SiteTaskReportState;
+	}
+	if (
+		!isRecord(parsed.progress) ||
+		typeof parsed.progress.total !== "number" ||
+		typeof parsed.progress.completed !== "number" ||
+		typeof parsed.progress.success !== "number" ||
+		typeof parsed.progress.warning !== "number" ||
+		typeof parsed.progress.failed !== "number" ||
+		typeof parsed.progress.skipped !== "number" ||
+		typeof parsed.progress.updated_at !== "string"
+	) {
+		return null;
+	}
+	return {
+		...(parsed as SiteTaskReportState),
+		started_at: String(parsed.started_at ?? runsAt),
+		finished_at:
+			parsed.finished_at === undefined || parsed.finished_at === null
+				? null
+				: String(parsed.finished_at),
+		error_message:
+			parsed.error_message === undefined || parsed.error_message === null
+				? null
+				: String(parsed.error_message),
+		progress: {
+			...legacyProgress,
+			...parsed.progress,
+		},
+	};
+}
+
 function parseSiteTaskReport(
 	kind: SiteTaskKind,
 	value: string,
@@ -86,13 +224,7 @@ function parseSiteTaskReport(
 		if (!isRecord(parsed) || parsed.kind !== kind) {
 			return null;
 		}
-		if (
-			typeof parsed.runs_at !== "string" ||
-			parsed.runs_at.trim().length === 0
-		) {
-			return null;
-		}
-		return parsed as SiteTaskReportState;
+		return normalizeSiteTaskReportState(kind, parsed);
 	} catch {
 		return null;
 	}

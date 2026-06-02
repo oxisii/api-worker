@@ -246,6 +246,10 @@ export type DashboardData = {
 		total_tokens: number;
 		avg_latency: number;
 		total_errors: number;
+		cache_read_input_tokens: number;
+		cache_write_input_tokens: number;
+		uncached_input_tokens: number;
+		billable_input_tokens: number;
 	};
 	chargeByCurrency?: Array<{
 		currency: string;
@@ -679,23 +683,44 @@ export type SiteTaskKind =
 	| "verify-disabled"
 	| "refresh-active";
 
+export type SiteTaskRunStatus = "running" | "completed" | "failed";
+
+export type SiteTaskProgress = {
+	total: number;
+	completed: number;
+	success: number;
+	warning: number;
+	failed: number;
+	skipped: number;
+	current_site_id?: string | null;
+	current_site_name?: string | null;
+	updated_at: string;
+};
+
+type SiteTaskStateBase = {
+	kind: SiteTaskKind;
+	status: SiteTaskRunStatus;
+	runs_at: string;
+	started_at: string;
+	finished_at?: string | null;
+	progress: SiteTaskProgress;
+	error_message?: string | null;
+};
+
 export type SiteTaskResultState =
-	| {
+	| (SiteTaskStateBase & {
 			kind: "checkin";
-			runs_at: string;
 			summary: CheckinSummary;
 			items: CheckinResultItem[];
-	  }
-	| {
+	  })
+	| (SiteTaskStateBase & {
 			kind: "verify-active" | "verify-disabled";
-			runs_at: string;
 			report: SiteVerificationBatchReport;
-	  }
-	| {
+	  })
+	| (SiteTaskStateBase & {
 			kind: "refresh-active";
-			runs_at: string;
 			report: SiteChannelRefreshBatchReport;
-	  };
+	  });
 
 export type SiteTaskReportMap = Partial<
 	Record<SiteTaskKind, SiteTaskResultState>

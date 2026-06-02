@@ -114,6 +114,41 @@ export type SiteChannelRefreshBatchResult = {
 	runsAt: string;
 };
 
+type TaskProgressReporter<T> = (payload: {
+	item: T;
+	index: number;
+	total: number;
+}) => Promise<void> | void;
+
+type VerificationProgressItem = {
+	site_id: string;
+	site_name: string;
+	verdict: SiteVerificationResult["verdict"];
+	result: SiteVerificationResult;
+};
+
+type RecoveryProgressItem = {
+	site_id: string;
+	site_name: string;
+	recovered: boolean;
+	verification?: SiteVerificationResult;
+};
+
+type RefreshProgressItem = {
+	site_id: string;
+	site_name: string;
+	status: SiteChannelRefreshItem["status"];
+	item: SiteChannelRefreshItem;
+};
+
+type CheckinProgressItem = {
+	id: string;
+	name: string;
+	status: CheckinResultItem["status"];
+	message: string;
+	checkin_date?: string | null;
+};
+
 export async function verifyChannelById(
 	db: D1Database,
 	channelId: string,
@@ -158,6 +193,7 @@ export async function verifyChannelById(
 export async function verifySitesByIds(
 	db: D1Database,
 	ids?: string[],
+	onProgress?: TaskProgressReporter<VerificationProgressItem>,
 ): Promise<SiteVerificationBatchResult> {
 	const runtime = await getSiteTaskRuntime(db);
 	const allChannels = await listChannels(db, {
@@ -209,10 +245,27 @@ export async function verifySitesByIds(
 				tokens,
 				result,
 			});
-			return result;
+			return {
+				site_id: result.site_id,
+				site_name: result.site_name,
+				verdict: result.verdict,
+				result,
+			};
+		},
+		async ({ item, index, total }) => {
+			await onProgress?.({
+				item: {
+					site_id: item.site_id,
+					site_name: item.site_name,
+					verdict: item.verdict,
+					result: item.result,
+				},
+				index,
+				total,
+			});
 		},
 	);
-	return buildVerificationBatchResult(items);
+	return buildVerificationBatchResult(items.map((item) => item.result));
 }
 
 function createTimeoutSignal(timeoutMs: number) {
@@ -471,6 +524,7 @@ async function mapWithConcurrency<T, R>(
 	items: T[],
 	limit: number,
 	worker: (item: T, index: number) => Promise<R>,
+	onItemComplete?: TaskProgressReporter<R>,
 ): Promise<R[]> {
 	const results = new Array<R>(items.length);
 	let nextIndex = 0;
@@ -484,6 +538,11 @@ async function mapWithConcurrency<T, R>(
 					return;
 				}
 				results[current] = await worker(items[current], current);
+				await onItemComplete?.({
+					item: results[current],
+					index: current,
+					total: items.length,
+				});
 			}
 		},
 	);
@@ -616,6 +675,7 @@ export async function runCheckinAllViaWorker(
 	db: D1Database,
 	env: Bindings,
 	now: Date = new Date(),
+	onProgress?: TaskProgressReporter<CheckinProgressItem>,
 ): Promise<CheckinRunResult> {
 	const runtime = await getSiteTaskRuntime(db);
 	const channels = await listChannels(db, { orderBy: "created_at" });
@@ -678,6 +738,23 @@ export async function runCheckinAllViaWorker(
 				checkin_date: checkinDate,
 			};
 			return null;
+		},
+		async ({ item: _item, index, total }) => {
+			const current = resultSlots[pending[index]?.slotIndex ?? -1];
+			if (!current) {
+				return;
+			}
+			await onProgress?.({
+				item: {
+					id: current.id,
+					name: current.name,
+					status: current.status,
+					message: current.message,
+					checkin_date: current.checkin_date ?? null,
+				},
+				index,
+				total,
+			});
 		},
 	);
 
@@ -841,6 +918,7 @@ export async function refreshChannelById(
 export async function refreshActiveChannelsViaWorker(
 	db: D1Database,
 	env: Bindings,
+	onProgress?: TaskProgressReporter<RefreshProgressItem>,
 ): Promise<SiteChannelRefreshBatchResult> {
 	const runtime = await getSiteTaskRuntime(db);
 	const channels = await listChannels(db, {
@@ -878,6 +956,18 @@ export async function refreshActiveChannelsViaWorker(
 				};
 			}
 		},
+		async ({ item, index, total }) => {
+			await onProgress?.({
+				item: {
+					site_id: item.site_id,
+					site_name: item.site_name,
+					status: item.status,
+					item,
+				},
+				index,
+				total,
+			});
+		},
 	);
 	const success = items.filter((item) => item.status === "success").length;
 	const warning = items.filter((item) => item.status === "warning").length;
@@ -896,6 +986,7 @@ export async function refreshActiveChannelsViaWorker(
 export async function recoverDisabledChannelsViaWorker(
 	db: D1Database,
 	_env: Bindings,
+	onProgress?: TaskProgressReporter<RecoveryProgressItem>,
 ): Promise<DisabledChannelRecoveryBatchResult> {
 	const runtime = await getSiteTaskRuntime(db);
 	const disabledChannels = await listChannels(db, {
@@ -1014,6 +1105,18 @@ export async function recoverDisabledChannelsViaWorker(
 					},
 				} satisfies DisabledChannelRecoveryResult;
 			}
+		},
+		async ({ item, index, total }) => {
+			await onProgress?.({
+				item: {
+					site_id: item.channel_id ?? "",
+					site_name: item.channel_name ?? "",
+					recovered: item.recovered,
+					verification: item.verification,
+				},
+				index,
+				total,
+			});
 		},
 	);
 

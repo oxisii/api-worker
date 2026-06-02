@@ -30,6 +30,48 @@ import {
 } from "../core/utils";
 import { formatChargeByCurrency } from "./pricing-display";
 
+const dashboardPresetOptions: Array<{
+	value: Exclude<DashboardQuery["preset"], "custom">;
+	label: string;
+}> = [
+	{ value: "all", label: "全部" },
+	{ value: "7d", label: "近 7 天" },
+	{ value: "30d", label: "近 30 天" },
+	{ value: "90d", label: "近 90 天" },
+	{ value: "1y", label: "近一年" },
+];
+
+const resolveDateRangeForQuery = (query: DashboardQuery) => {
+	if (query.preset === "custom") {
+		const today = getBeijingDateString();
+		return {
+			from: query.from || today,
+			to: query.to || today,
+		};
+	}
+	if (query.preset === "all") {
+		return {
+			from: "",
+			to: "",
+		};
+	}
+	const today = new Date();
+	const days =
+		query.preset === "7d"
+			? 7
+			: query.preset === "30d"
+				? 30
+				: query.preset === "90d"
+					? 90
+					: 365;
+	const fromDate = new Date(today);
+	fromDate.setDate(today.getDate() - (days - 1));
+	return {
+		from: getBeijingDateString(fromDate),
+		to: getBeijingDateString(today),
+	};
+};
+
 type DashboardViewProps = {
 	dashboard: DashboardData | null;
 	onRefresh: () => void;
@@ -84,6 +126,12 @@ export const DashboardView = ({
 		token_ids: query.token_ids,
 		model: query.model,
 	}));
+	const [draftRangeQuery, setDraftRangeQuery] = useState(() => ({
+		preset: query.preset,
+		from: query.from,
+		to: query.to,
+	}));
+	const [draftInterval, setDraftInterval] = useState(query.interval);
 	const trendColumnDefaults = ["bucket", "requests", "tokens"];
 	const rankColumnDefaults = ["name", "requests", "tokens"];
 	const [trendColumns, setTrendColumns] = useState(() =>
@@ -107,10 +155,26 @@ export const DashboardView = ({
 	const trendColumnCount = trendColumns.length;
 	const rankColumnCount = rankColumns.length;
 	const intervalLabel =
-		query.interval === "week" ? "周" : query.interval === "month" ? "月" : "日";
-	const hasAdvancedFilters = Boolean(
-		query.channel_ids.length > 0 || query.token_ids.length > 0 || query.model,
+		draftInterval === "week" ? "周" : draftInterval === "month" ? "月" : "日";
+	const dateRange = useMemo(
+		() =>
+			resolveDateRangeForQuery({
+				...query,
+				preset: draftRangeQuery.preset,
+				from: draftRangeQuery.from,
+				to: draftRangeQuery.to,
+			}),
+		[draftRangeQuery, query],
 	);
+	const hasAdvancedFilters = Boolean(
+		draftFilters.channel_ids.length > 0 ||
+			draftFilters.token_ids.length > 0 ||
+			draftFilters.model.trim(),
+	);
+	const activeFilterCount =
+		(draftFilters.channel_ids.length > 0 ? 1 : 0) +
+		(draftFilters.token_ids.length > 0 ? 1 : 0) +
+		(draftFilters.model.trim() ? 1 : 0);
 	const channelOptions = useMemo(
 		() =>
 			channels.map((channel) => ({
@@ -173,23 +237,58 @@ export const DashboardView = ({
 	};
 	const setPreset = (preset: DashboardQuery["preset"]) => {
 		if (preset === "all") {
-			onQueryChange({ preset, from: "", to: "" });
-			return;
-		}
-		if (preset === "custom") {
-			const today = getBeijingDateString();
-			onQueryChange({
+			setDraftRangeQuery({
 				preset,
-				from: query.from || today,
-				to: query.to || today,
+				from: "",
+				to: "",
 			});
 			return;
 		}
-		onQueryChange({ preset });
+		setDraftRangeQuery((prev) => ({
+			...prev,
+			preset,
+		}));
+	};
+	const handleDateChange = (field: "from" | "to", value: string) => {
+		const nextFrom = field === "from" ? value : dateRange.from;
+		const nextTo = field === "to" ? value : dateRange.to;
+		setDraftRangeQuery({
+			preset: "custom",
+			from: nextFrom,
+			to: nextTo,
+		});
+	};
+	const handleResetFilters = () => {
+		const nextQuery: DashboardQuery = {
+			...query,
+			preset: "all",
+			from: "",
+			to: "",
+			channel_ids: [],
+			token_ids: [],
+			model: "",
+		};
+		setDraftFilters({
+			channel_ids: [],
+			token_ids: [],
+			model: "",
+		});
+		setDraftRangeQuery({
+			preset: "all",
+			from: "",
+			to: "",
+		});
+		setFilterOpen(false);
+		onQueryChange(nextQuery);
+		onApply(nextQuery);
 	};
 	const handleApply = () => {
 		const nextQuery = {
 			...query,
+			interval: draftInterval,
+			preset: draftRangeQuery.preset,
+			from: draftRangeQuery.from,
+			to: draftRangeQuery.to,
 			channel_ids: draftFilters.channel_ids,
 			token_ids: draftFilters.token_ids,
 			model: draftFilters.model,
@@ -199,9 +298,7 @@ export const DashboardView = ({
 		onApply(nextQuery);
 	};
 	const handleIntervalApply = (nextInterval: DashboardQuery["interval"]) => {
-		const nextQuery = { ...query, interval: nextInterval };
-		onQueryChange(nextQuery);
-		onApply(nextQuery);
+		setDraftInterval(nextInterval);
 	};
 	useEffect(() => {
 		if (typeof window === "undefined") {
@@ -216,6 +313,16 @@ export const DashboardView = ({
 			model: query.model,
 		});
 	}, [query.channel_ids, query.model, query.token_ids]);
+	useEffect(() => {
+		setDraftRangeQuery({
+			preset: query.preset,
+			from: query.from,
+			to: query.to,
+		});
+	}, [query.from, query.preset, query.to]);
+	useEffect(() => {
+		setDraftInterval(query.interval);
+	}, [query.interval]);
 	useEffect(() => {
 		if (!filterOpen) {
 			return;
@@ -305,6 +412,152 @@ export const DashboardView = ({
 		}
 	}, [filterOpen, intervalOpen]);
 
+	const renderToolbar = () => (
+		<Card
+			variant="compact"
+			class="app-layer-raised app-toolbar-card flex flex-wrap items-center gap-3 p-3"
+		>
+			<div class="flex flex-wrap items-center gap-2">
+				{dashboardPresetOptions.map((preset) => (
+					<Button
+						class="h-8 px-3 text-[11px]"
+						key={preset.value}
+						size="sm"
+						type="button"
+						variant={
+							draftRangeQuery.preset === preset.value ? "primary" : "ghost"
+						}
+						onClick={() => setPreset(preset.value)}
+					>
+						{preset.label}
+					</Button>
+				))}
+			</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<Input
+					class="h-8 w-36 text-xs"
+					type="date"
+					value={dateRange.from}
+					placeholder="开始日期"
+					onInput={(event) =>
+						handleDateChange(
+							"from",
+							(event.currentTarget as HTMLInputElement).value,
+						)
+					}
+				/>
+				<span class="text-xs text-[color:var(--app-ink-muted)]">-</span>
+				<Input
+					class="h-8 w-36 text-xs"
+					type="date"
+					value={dateRange.to}
+					placeholder="结束日期"
+					onInput={(event) =>
+						handleDateChange(
+							"to",
+							(event.currentTarget as HTMLInputElement).value,
+						)
+					}
+				/>
+			</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<div class={cx("relative", filterRootClass)}>
+					<Button
+						class="h-8 px-3 text-[11px]"
+						size="sm"
+						variant="ghost"
+						type="button"
+						onClick={(event) => {
+							event.stopPropagation();
+							setIntervalOpen(false);
+							if (!filterOpen) {
+								window.dispatchEvent(
+									new CustomEvent<string>(popoverEvent, {
+										detail: filterPopoverId,
+									}),
+								);
+							}
+							setFilterOpen((prev) => !prev);
+						}}
+					>
+						筛选条件
+					</Button>
+					<Popover open={filterOpen}>
+						<PopoverContent
+							class="right-0 p-3 app-popover-content--spaced app-dashboard-filter-popover"
+							style="width:216px;min-width:216px;max-width:216px;"
+						>
+							<div class="grid gap-2">
+								<MultiSelect
+									class="w-full"
+									options={channelOptions}
+									value={draftFilters.channel_ids}
+									placeholder="选择渠道"
+									searchPlaceholder="搜索渠道"
+									emptyLabel="暂无匹配渠道"
+									onChange={(next) =>
+										setDraftFilters((prev) => ({
+											...prev,
+											channel_ids: next,
+										}))
+									}
+								/>
+								<MultiSelect
+									class="w-full"
+									options={tokenOptions}
+									value={draftFilters.token_ids}
+									placeholder="选择令牌"
+									searchPlaceholder="搜索令牌"
+									emptyLabel="暂无匹配令牌"
+									onChange={(next) =>
+										setDraftFilters((prev) => ({
+											...prev,
+											token_ids: next,
+										}))
+									}
+								/>
+								<Input
+									class="h-8 text-xs"
+									placeholder="模型关键词"
+									value={draftFilters.model}
+									onInput={(event) =>
+										setDraftFilters((prev) => ({
+											...prev,
+											model: (event.currentTarget as HTMLInputElement).value,
+										}))
+									}
+								/>
+							</div>
+						</PopoverContent>
+					</Popover>
+				</div>
+				{hasAdvancedFilters ? (
+					<Chip variant="accent">已筛选 {activeFilterCount}</Chip>
+				) : null}
+				<Button
+					class="h-8 px-3 text-[11px]"
+					size="sm"
+					type="button"
+					variant="ghost"
+					disabled={isRefreshing}
+					onClick={handleResetFilters}
+				>
+					重置
+				</Button>
+				<Button
+					class="h-8 px-4 text-[11px]"
+					size="sm"
+					variant="primary"
+					type="button"
+					disabled={isRefreshing}
+					onClick={handleApply}
+				>
+					应用筛选
+				</Button>
+			</div>
+		</Card>
+	);
+
 	if (!dashboard) {
 		return (
 			<div class="app-panel animate-fade-up space-y-5">
@@ -317,145 +570,10 @@ export const DashboardView = ({
 						{isRefreshing ? "刷新中..." : "刷新"}
 					</Button>
 				</div>
-				<Card
-					variant="compact"
-					class="app-layer-raised app-toolbar-card mt-4 flex flex-wrap items-center gap-2 p-3"
-				>
-					<div class="flex flex-wrap items-center gap-2">
-						{[
-							{ value: "all", label: "全部" },
-							{ value: "7d", label: "近 7 天" },
-							{ value: "30d", label: "近 30 天" },
-							{ value: "90d", label: "近 90 天" },
-							{ value: "1y", label: "近一年" },
-							{ value: "custom", label: "自定义" },
-						].map((preset) => (
-							<Button
-								class="h-8 px-3 text-[11px]"
-								key={preset.value}
-								size="sm"
-								type="button"
-								variant={query.preset === preset.value ? "primary" : "ghost"}
-								onClick={() =>
-									setPreset(preset.value as DashboardQuery["preset"])
-								}
-							>
-								{preset.label}
-							</Button>
-						))}
-					</div>
-					{query.preset === "custom" && (
-						<div class="flex flex-wrap items-center gap-2">
-							<Input
-								class="h-8 w-36 text-xs"
-								type="date"
-								value={query.from}
-								onInput={(event) =>
-									onQueryChange({
-										from: (event.currentTarget as HTMLInputElement).value,
-									})
-								}
-							/>
-							<Input
-								class="h-8 w-36 text-xs"
-								type="date"
-								value={query.to}
-								onInput={(event) =>
-									onQueryChange({
-										to: (event.currentTarget as HTMLInputElement).value,
-									})
-								}
-							/>
-						</div>
-					)}
-					<div class="flex flex-wrap items-center gap-2">
-						<div class={cx("relative", filterRootClass)}>
-							<Button
-								class="h-8 px-3 text-[11px]"
-								size="sm"
-								variant="ghost"
-								type="button"
-								onClick={(event) => {
-									event.stopPropagation();
-									setIntervalOpen(false);
-									if (!filterOpen) {
-										window.dispatchEvent(
-											new CustomEvent<string>(popoverEvent, {
-												detail: filterPopoverId,
-											}),
-										);
-									}
-									setFilterOpen((prev) => !prev);
-								}}
-							>
-								更多筛选
-							</Button>
-							<Popover open={filterOpen}>
-								<PopoverContent
-									class="right-0 p-3 app-popover-content--spaced app-dashboard-filter-popover"
-									style="width:216px;min-width:216px;max-width:216px;"
-								>
-									<div class="grid gap-2">
-										<MultiSelect
-											class="w-full"
-											options={channelOptions}
-											value={draftFilters.channel_ids}
-											placeholder="选择渠道"
-											searchPlaceholder="搜索渠道"
-											emptyLabel="暂无匹配渠道"
-											onChange={(next) =>
-												setDraftFilters((prev) => ({
-													...prev,
-													channel_ids: next,
-												}))
-											}
-										/>
-										<MultiSelect
-											class="w-full"
-											options={tokenOptions}
-											value={draftFilters.token_ids}
-											placeholder="选择令牌"
-											searchPlaceholder="搜索令牌"
-											emptyLabel="暂无匹配令牌"
-											onChange={(next) =>
-												setDraftFilters((prev) => ({
-													...prev,
-													token_ids: next,
-												}))
-											}
-										/>
-										<Input
-											class="h-8 text-xs"
-											placeholder="模型关键词"
-											value={draftFilters.model}
-											onInput={(event) =>
-												setDraftFilters((prev) => ({
-													...prev,
-													model: (event.currentTarget as HTMLInputElement)
-														.value,
-												}))
-											}
-										/>
-									</div>
-								</PopoverContent>
-							</Popover>
-						</div>
-						{hasAdvancedFilters ? <Chip variant="accent">已筛选</Chip> : null}
-						<Button
-							class="h-8 px-4 text-[11px]"
-							size="sm"
-							variant="primary"
-							type="button"
-							disabled={isRefreshing}
-							onClick={handleApply}
-						>
-							应用筛选
-						</Button>
-					</div>
-				</Card>
+				{renderToolbar()}
 				{isRefreshing ? (
 					<div class="app-grid app-grid--kpi">
-						{Array.from({ length: 5 }).map((_, index) => (
+						{Array.from({ length: 6 }).map((_, index) => (
 							<Card variant="compact" key={`kpi-skeleton-${index}`}>
 								<Skeleton class="h-4 w-20" />
 								<Skeleton class="mt-3 h-7 w-24" />
@@ -502,6 +620,8 @@ export const DashboardView = ({
 	const avgTokensPerRequest = totalRequests
 		? Math.round(dashboard.summary.total_tokens / totalRequests)
 		: 0;
+	const cacheReadTokens = dashboard.summary.cache_read_input_tokens ?? 0;
+	const cacheWriteTokens = dashboard.summary.cache_write_input_tokens ?? 0;
 	return (
 		<div class="app-panel animate-fade-up space-y-5">
 			<div class="flex flex-wrap items-center justify-between gap-4">
@@ -513,141 +633,7 @@ export const DashboardView = ({
 					{isRefreshing ? "刷新中..." : "刷新"}
 				</Button>
 			</div>
-			<Card
-				variant="compact"
-				class="app-layer-raised app-toolbar-card flex flex-wrap items-center gap-2 p-3"
-			>
-				<div class="flex flex-wrap items-center gap-2">
-					{[
-						{ value: "all", label: "全部" },
-						{ value: "7d", label: "近 7 天" },
-						{ value: "30d", label: "近 30 天" },
-						{ value: "90d", label: "近 90 天" },
-						{ value: "1y", label: "近一年" },
-						{ value: "custom", label: "自定义" },
-					].map((preset) => (
-						<Button
-							class="h-8 px-3 text-[11px]"
-							key={preset.value}
-							size="sm"
-							type="button"
-							variant={query.preset === preset.value ? "primary" : "ghost"}
-							onClick={() =>
-								setPreset(preset.value as DashboardQuery["preset"])
-							}
-						>
-							{preset.label}
-						</Button>
-					))}
-				</div>
-				{query.preset === "custom" && (
-					<div class="flex flex-wrap items-center gap-2">
-						<Input
-							class="h-8 w-36 text-xs"
-							type="date"
-							value={query.from}
-							onInput={(event) =>
-								onQueryChange({
-									from: (event.currentTarget as HTMLInputElement).value,
-								})
-							}
-						/>
-						<Input
-							class="h-8 w-36 text-xs"
-							type="date"
-							value={query.to}
-							onInput={(event) =>
-								onQueryChange({
-									to: (event.currentTarget as HTMLInputElement).value,
-								})
-							}
-						/>
-					</div>
-				)}
-				<div class="flex flex-wrap items-center gap-2">
-					<div class={cx("relative", filterRootClass)}>
-						<Button
-							class="h-8 px-3 text-[11px]"
-							size="sm"
-							variant="ghost"
-							type="button"
-							onClick={(event) => {
-								event.stopPropagation();
-								setIntervalOpen(false);
-								if (!filterOpen) {
-									window.dispatchEvent(
-										new CustomEvent<string>(popoverEvent, {
-											detail: filterPopoverId,
-										}),
-									);
-								}
-								setFilterOpen((prev) => !prev);
-							}}
-						>
-							更多筛选
-						</Button>
-						<Popover open={filterOpen}>
-							<PopoverContent
-								class="right-0 p-3 app-popover-content--spaced app-dashboard-filter-popover"
-								style="width:216px;min-width:216px;max-width:216px;"
-							>
-								<div class="grid gap-2">
-									<MultiSelect
-										class="w-full"
-										options={channelOptions}
-										value={draftFilters.channel_ids}
-										placeholder="选择渠道"
-										searchPlaceholder="搜索渠道"
-										emptyLabel="暂无匹配渠道"
-										onChange={(next) =>
-											setDraftFilters((prev) => ({
-												...prev,
-												channel_ids: next,
-											}))
-										}
-									/>
-									<MultiSelect
-										class="w-full"
-										options={tokenOptions}
-										value={draftFilters.token_ids}
-										placeholder="选择令牌"
-										searchPlaceholder="搜索令牌"
-										emptyLabel="暂无匹配令牌"
-										onChange={(next) =>
-											setDraftFilters((prev) => ({
-												...prev,
-												token_ids: next,
-											}))
-										}
-									/>
-									<Input
-										class="h-8 text-xs"
-										placeholder="模型关键词"
-										value={draftFilters.model}
-										onInput={(event) =>
-											setDraftFilters((prev) => ({
-												...prev,
-												model: (event.currentTarget as HTMLInputElement).value,
-											}))
-										}
-									/>
-								</div>
-							</PopoverContent>
-						</Popover>
-					</div>
-					{hasAdvancedFilters ? <Chip variant="accent">已筛选</Chip> : null}
-					<Button
-						class="h-8 px-4 text-[11px]"
-						size="sm"
-						variant="primary"
-						type="button"
-						disabled={isRefreshing}
-						onClick={handleApply}
-					>
-						应用筛选
-					</Button>
-				</div>
-			</Card>
+			{renderToolbar()}
 			<div class="app-grid app-grid--kpi">
 				<Card variant="compact">
 					<Chip>总请求</Chip>
@@ -657,10 +643,12 @@ export const DashboardView = ({
 				<Card variant="compact">
 					<Chip>总 Tokens</Chip>
 					<div class="app-kpi-value">{dashboard.summary.total_tokens}</div>
-					<span class="app-kpi-meta">累计消耗</span>
+					<span class="app-kpi-meta">
+						缓存读 {cacheReadTokens} | 缓存写 {cacheWriteTokens}
+					</span>
 				</Card>
 				<Card variant="compact">
-					<Chip variant="accent">销售额</Chip>
+					<Chip>费用</Chip>
 					<div class="app-kpi-value app-kpi-value--compact">
 						{formatChargeByCurrency(dashboard.chargeByCurrency ?? [])}
 					</div>
@@ -717,7 +705,7 @@ export const DashboardView = ({
 											<button
 												class={cx(
 													"app-dropdown-item app-dropdown-item--right",
-													query.interval === option.value &&
+													draftInterval === option.value &&
 														"app-dropdown-item--active",
 												)}
 												key={option.value}

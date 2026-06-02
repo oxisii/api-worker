@@ -164,6 +164,13 @@ type EditableBackupSettings = Pick<
 const buildActionKey = (scope: string, id?: string) =>
 	id ? `${scope}:${id}` : scope;
 
+const siteTaskKinds = [
+	"checkin",
+	"verify-active",
+	"verify-disabled",
+	"refresh-active",
+] as const;
+
 const getVerificationStageClass = (tone: string) => {
 	if (tone === "success") {
 		return "border-emerald-200 bg-emerald-50/80 text-emerald-700";
@@ -351,6 +358,85 @@ const mergeSettingsFormWithSnapshot = (
 		}
 	}
 	return nextForm;
+};
+
+const buildRunningSiteTaskReport = (
+	kind: SiteTaskResultState["kind"],
+	total: number,
+	startedAt: string,
+): SiteTaskResultState => {
+	const progress = {
+		total,
+		completed: 0,
+		success: 0,
+		warning: 0,
+		failed: 0,
+		skipped: 0,
+		current_site_id: null,
+		current_site_name: null,
+		updated_at: startedAt,
+	};
+	if (kind === "checkin") {
+		return {
+			kind,
+			status: "running",
+			runs_at: startedAt,
+			started_at: startedAt,
+			finished_at: null,
+			progress,
+			error_message: null,
+			summary: {
+				total,
+				success: 0,
+				failed: 0,
+				skipped: 0,
+			},
+			items: [],
+		};
+	}
+	if (kind === "refresh-active") {
+		return {
+			kind,
+			status: "running",
+			runs_at: startedAt,
+			started_at: startedAt,
+			finished_at: null,
+			progress,
+			error_message: null,
+			report: {
+				summary: {
+					total,
+					success: 0,
+					warning: 0,
+					failed: 0,
+				},
+				items: [],
+				runs_at: startedAt,
+			},
+		};
+	}
+	return {
+		kind,
+		status: "running",
+		runs_at: startedAt,
+		started_at: startedAt,
+		finished_at: null,
+		progress,
+		error_message: null,
+		report: {
+			summary: {
+				total,
+				serving: 0,
+				degraded: 0,
+				failed: 0,
+				recoverable: 0,
+				not_recoverable: 0,
+				skipped: 0,
+			},
+			items: [],
+			runs_at: startedAt,
+		},
+	};
 };
 
 const dashboardPresetDays: Record<DashboardQuery["preset"], number> = {
@@ -712,6 +798,7 @@ const App = () => {
 			await loadDashboard();
 			pushNotice("success", "数据已刷新");
 		} catch (error) {
+			await loadSites().catch(() => undefined);
 			pushNotice("error", (error as Error).message);
 		} finally {
 			endAction(actionKey);
@@ -867,6 +954,23 @@ const App = () => {
 		},
 		[apiFetch, usagePage, usagePageSize, usageQuery],
 	);
+	const hasRunningSiteTask = useMemo(
+		() =>
+			siteTaskKinds.some((kind) => siteTaskReports[kind]?.status === "running"),
+		[siteTaskReports],
+	);
+
+	useEffect(() => {
+		if (!token || !hasRunningSiteTask) {
+			return;
+		}
+		const timer = window.setInterval(() => {
+			void loadSites().catch(() => {
+				// Keep polling lightweight; surfaced errors still come from user actions.
+			});
+		}, 3000);
+		return () => window.clearInterval(timer);
+	}, [hasRunningSiteTask, loadSites, token]);
 
 	const loadSettings = useCallback(async () => {
 		const settings = await apiFetch<Settings>("/api/settings");
@@ -1203,6 +1307,7 @@ const App = () => {
 		try {
 			await loadUsage({ page: 1, query: nextQuery });
 		} catch (error) {
+			await loadSites().catch(() => undefined);
 			pushNotice("error", (error as Error).message);
 		} finally {
 			endAction(actionKey);
@@ -1233,6 +1338,7 @@ const App = () => {
 		try {
 			await loadUsage({ page: 1, query: initialUsageQuery });
 		} catch (error) {
+			await loadSites().catch(() => undefined);
 			pushNotice("error", (error as Error).message);
 		} finally {
 			endAction(actionKey);
@@ -1395,7 +1501,22 @@ const App = () => {
 					...prev,
 					"refresh-active": {
 						kind: "refresh-active",
+						status: "completed",
 						runs_at: runsAt,
+						started_at: current?.started_at ?? runsAt,
+						finished_at: runsAt,
+						progress: {
+							total: nextItems.length,
+							completed: nextItems.length,
+							success,
+							warning,
+							failed: nextItems.length - success - warning,
+							skipped: 0,
+							current_site_id: null,
+							current_site_name: null,
+							updated_at: runsAt,
+						},
+						error_message: null,
 						report: {
 							summary: {
 								total: nextItems.length,
@@ -1466,6 +1587,14 @@ const App = () => {
 		}
 		startAction(actionKey);
 		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"verify-active",
+					data.sites.filter((site) => site.status === "active").length,
+					startedAt,
+				),
+			);
 			const report = await apiFetch<SiteVerificationBatchReport>(
 				"/api/sites/verify-batch",
 				{
@@ -1475,7 +1604,22 @@ const App = () => {
 			await Promise.all([loadSites(), loadModels()]);
 			storeSiteTaskReport({
 				kind: "verify-active",
+				status: "completed",
 				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.serving,
+					warning: report.summary.degraded,
+					failed: report.summary.failed,
+					skipped: report.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
 				report,
 			});
 			const summary = report.summary;
@@ -1490,13 +1634,14 @@ const App = () => {
 				`检查完成：正常 ${summary.serving}，异常 ${summary.degraded + summary.failed}。`,
 			);
 		} catch (error) {
+			await loadSites().catch(() => undefined);
 			pushNotice("error", (error as Error).message);
 		} finally {
 			endAction(actionKey);
 		}
 	}, [
 		apiFetch,
-		data.sites.length,
+		data.sites,
 		endAction,
 		isActionPending,
 		loadModels,
@@ -1513,6 +1658,14 @@ const App = () => {
 		}
 		startAction(actionKey);
 		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"verify-disabled",
+					data.sites.filter((site) => site.status === "disabled").length,
+					startedAt,
+				),
+			);
 			const report = await apiFetch<SiteVerificationBatchReport>(
 				"/api/sites/recovery-evaluate",
 				{
@@ -1526,7 +1679,22 @@ const App = () => {
 			}
 			storeSiteTaskReport({
 				kind: "verify-disabled",
+				status: "completed",
 				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.recoverable,
+					warning: 0,
+					failed: report.summary.not_recoverable + report.summary.failed,
+					skipped: report.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
 				report,
 			});
 			pushNotice(
@@ -1540,6 +1708,7 @@ const App = () => {
 		}
 	}, [
 		apiFetch,
+		data.sites,
 		endAction,
 		isActionPending,
 		loadModels,
@@ -2367,12 +2536,23 @@ const App = () => {
 					return {
 						...prev,
 						"verify-active": {
-							kind: "verify-active",
-							runs_at: current.runs_at,
+							...current,
 							report: {
 								...current.report,
 								items: nextItems,
 								summary: summarizeVerificationResults(nextItems),
+							},
+							progress: {
+								...current.progress,
+								total: nextItems.length,
+								completed: nextItems.length,
+								success: summarizeVerificationResults(nextItems).serving,
+								warning: summarizeVerificationResults(nextItems).degraded,
+								failed: summarizeVerificationResults(nextItems).failed,
+								skipped: summarizeVerificationResults(nextItems).skipped,
+								current_site_id: null,
+								current_site_name: null,
+								updated_at: current.runs_at,
 							},
 						},
 					};
@@ -2444,12 +2624,23 @@ const App = () => {
 				return {
 					...prev,
 					"verify-active": {
-						kind: "verify-active",
-						runs_at: current.runs_at,
+						...current,
 						report: {
 							...current.report,
 							items: nextItems,
 							summary: summarizeVerificationResults(nextItems),
+						},
+						progress: {
+							...current.progress,
+							total: nextItems.length,
+							completed: nextItems.length,
+							success: summarizeVerificationResults(nextItems).serving,
+							warning: summarizeVerificationResults(nextItems).degraded,
+							failed: summarizeVerificationResults(nextItems).failed,
+							skipped: summarizeVerificationResults(nextItems).skipped,
+							current_site_id: null,
+							current_site_name: null,
+							updated_at: current.runs_at,
 						},
 					},
 				};
@@ -2635,6 +2826,14 @@ const App = () => {
 		}
 		startAction(actionKey);
 		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"checkin",
+					data.sites.filter((site) => Boolean(site.checkin_enabled)).length,
+					startedAt,
+				),
+			);
 			const result = await apiFetch<{
 				results: Array<{
 					id: string;
@@ -2651,7 +2850,22 @@ const App = () => {
 			await loadSites();
 			storeSiteTaskReport({
 				kind: "checkin",
+				status: "completed",
 				runs_at: result.runs_at,
+				started_at: startedAt,
+				finished_at: result.runs_at,
+				progress: {
+					total: result.summary.total,
+					completed: result.summary.total,
+					success: result.summary.success,
+					warning: 0,
+					failed: result.summary.failed,
+					skipped: result.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: result.runs_at,
+				},
+				error_message: null,
 				summary: result.summary,
 				items: result.results,
 			});
@@ -2672,6 +2886,7 @@ const App = () => {
 		}
 	}, [
 		apiFetch,
+		data.sites,
 		endAction,
 		isActionPending,
 		loadSites,
@@ -2746,6 +2961,14 @@ const App = () => {
 		}
 		startAction(actionKey);
 		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"refresh-active",
+					data.sites.filter((site) => site.status === "active").length,
+					startedAt,
+				),
+			);
 			const report = await apiFetch<SiteChannelRefreshBatchReport>(
 				"/api/sites/refresh-active",
 				{
@@ -2755,7 +2978,22 @@ const App = () => {
 			await Promise.all([loadSites(), loadModels()]);
 			storeSiteTaskReport({
 				kind: "refresh-active",
+				status: "completed",
 				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.success,
+					warning: report.summary.warning,
+					failed: report.summary.failed,
+					skipped: 0,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
 				report,
 			});
 			if (report.summary.total === 0) {
@@ -2784,6 +3022,7 @@ const App = () => {
 		}
 	}, [
 		apiFetch,
+		data.sites,
 		endAction,
 		isActionPending,
 		loadModels,

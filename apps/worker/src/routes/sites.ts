@@ -1,3 +1,4 @@
+import type { D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import {
 	getDefaultBaseUrlForSiteType,
@@ -44,6 +45,8 @@ import { normalizeBaseUrl } from "../utils/url";
 import {
 	buildVerificationBatchResult,
 	parseSiteVerificationSummary,
+	type SiteVerificationBatchResult,
+	type SiteVerificationResult,
 } from "../services/site-verification";
 import {
 	normalizeCallTokens,
@@ -53,6 +56,10 @@ import {
 import {
 	listSiteTaskReports,
 	saveSiteTaskReport,
+	type SiteChannelRefreshBatchReport,
+	type SiteTaskKind,
+	type SiteTaskProgress,
+	type SiteTaskReportState,
 } from "../services/site-task-report-store";
 import { getProxyRuntimeSettings } from "../services/settings";
 
@@ -81,6 +88,14 @@ type SitePayload = {
 
 type CallTokenPayload = SiteCallTokenInput & {
 	id?: string;
+};
+
+type CheckinTaskItem = {
+	id: string;
+	name: string;
+	status: "success" | "failed" | "skipped";
+	message: string;
+	checkin_date?: string | null;
 };
 
 const parseSiteType = (value: unknown): SiteType => {
@@ -145,6 +160,287 @@ const parseRequestEntryFormat = (value: unknown): RequestEntryFormat | null => {
 		return "gemini_generate_content";
 	}
 	return null;
+};
+
+const buildEmptySiteTaskProgress = (
+	total: number,
+	updatedAt: string,
+): SiteTaskProgress => ({
+	total,
+	completed: 0,
+	success: 0,
+	warning: 0,
+	failed: 0,
+	skipped: 0,
+	current_site_id: null,
+	current_site_name: null,
+	updated_at: updatedAt,
+});
+
+const summarizeCheckinItems = (
+	items: Array<{ status: "success" | "failed" | "skipped" }>,
+) => ({
+	total: items.length,
+	success: items.filter((item) => item.status === "success").length,
+	failed: items.filter((item) => item.status === "failed").length,
+	skipped: items.filter((item) => item.status === "skipped").length,
+});
+
+const summarizeRefreshItems = (
+	items: SiteChannelRefreshBatchReport["items"],
+	total: number,
+): SiteChannelRefreshBatchReport["summary"] => {
+	const success = items.filter((item) => item.status === "success").length;
+	const warning = items.filter((item) => item.status === "warning").length;
+	return {
+		total,
+		success,
+		warning,
+		failed: items.filter((item) => item.status === "failed").length,
+	};
+};
+
+const summarizeVerificationItems = (
+	items: SiteVerificationResult[],
+	total: number,
+): SiteVerificationBatchResult["summary"] => {
+	const summary = {
+		total,
+		serving: 0,
+		degraded: 0,
+		failed: 0,
+		recoverable: 0,
+		not_recoverable: 0,
+		skipped: 0,
+	};
+	for (const item of items) {
+		if (item.verdict === "serving") {
+			summary.serving += 1;
+			continue;
+		}
+		if (item.verdict === "degraded") {
+			summary.degraded += 1;
+			continue;
+		}
+		if (item.verdict === "recoverable") {
+			summary.recoverable += 1;
+			continue;
+		}
+		if (item.verdict === "not_recoverable") {
+			summary.not_recoverable += 1;
+			continue;
+		}
+		summary.failed += 1;
+	}
+	return summary;
+};
+
+const buildVerificationTaskProgress = (
+	kind: "verify-active" | "verify-disabled",
+	items: SiteVerificationResult[],
+	total: number,
+	updatedAt: string,
+	current?: {
+		id?: string | null;
+		name?: string | null;
+	},
+): SiteTaskProgress => {
+	const summary = summarizeVerificationItems(items, total);
+	return {
+		total,
+		completed: items.length,
+		success: kind === "verify-active" ? summary.serving : summary.recoverable,
+		warning: kind === "verify-active" ? summary.degraded : 0,
+		failed:
+			kind === "verify-active"
+				? summary.failed
+				: summary.not_recoverable + summary.failed,
+		skipped: summary.skipped,
+		current_site_id: current?.id ?? null,
+		current_site_name: current?.name ?? null,
+		updated_at: updatedAt,
+	};
+};
+
+const buildRefreshTaskProgress = (
+	items: SiteChannelRefreshBatchReport["items"],
+	total: number,
+	updatedAt: string,
+	current?: {
+		id?: string | null;
+		name?: string | null;
+	},
+): SiteTaskProgress => ({
+	total,
+	completed: items.length,
+	success: items.filter((item) => item.status === "success").length,
+	warning: items.filter((item) => item.status === "warning").length,
+	failed: items.filter((item) => item.status === "failed").length,
+	skipped: 0,
+	current_site_id: current?.id ?? null,
+	current_site_name: current?.name ?? null,
+	updated_at: updatedAt,
+});
+
+const buildCheckinTaskProgress = (
+	items: CheckinTaskItem[],
+	total: number,
+	updatedAt: string,
+	current?: {
+		id?: string | null;
+		name?: string | null;
+	},
+): SiteTaskProgress => {
+	const summary = summarizeCheckinItems(items);
+	return {
+		total,
+		completed: items.length,
+		success: summary.success,
+		warning: 0,
+		failed: summary.failed,
+		skipped: summary.skipped,
+		current_site_id: current?.id ?? null,
+		current_site_name: current?.name ?? null,
+		updated_at: updatedAt,
+	};
+};
+
+const buildRunningCheckinTaskReport = (
+	startedAt: string,
+	total: number,
+	items: CheckinTaskItem[] = [],
+): SiteTaskReportState => ({
+	kind: "checkin",
+	status: "running",
+	runs_at: startedAt,
+	started_at: startedAt,
+	finished_at: null,
+	progress: buildCheckinTaskProgress(items, total, startedAt),
+	error_message: null,
+	summary: summarizeCheckinItems(items),
+	items,
+});
+
+const buildRunningVerificationTaskReport = (
+	kind: "verify-active" | "verify-disabled",
+	startedAt: string,
+	total: number,
+	items: SiteVerificationResult[] = [],
+): SiteTaskReportState => {
+	const report = {
+		summary: summarizeVerificationItems(items, total),
+		items,
+		runs_at: startedAt,
+	};
+	return {
+		kind,
+		status: "running",
+		runs_at: startedAt,
+		started_at: startedAt,
+		finished_at: null,
+		progress: buildVerificationTaskProgress(kind, items, total, startedAt),
+		error_message: null,
+		report: {
+			...report,
+		},
+	};
+};
+
+const buildRunningRefreshTaskReport = (
+	startedAt: string,
+	total: number,
+	items: SiteChannelRefreshBatchReport["items"] = [],
+): SiteTaskReportState => ({
+	kind: "refresh-active",
+	status: "running",
+	runs_at: startedAt,
+	started_at: startedAt,
+	finished_at: null,
+	progress: buildRefreshTaskProgress(items, total, startedAt),
+	error_message: null,
+	report: {
+		summary: summarizeRefreshItems(items, total),
+		items,
+		runs_at: startedAt,
+	},
+});
+
+const buildCompletedCheckinTaskReport = (
+	startedAt: string,
+	finishedAt: string,
+	items: CheckinTaskItem[],
+): SiteTaskReportState => ({
+	kind: "checkin",
+	status: "completed",
+	runs_at: finishedAt,
+	started_at: startedAt,
+	finished_at: finishedAt,
+	progress: buildCheckinTaskProgress(items, items.length, finishedAt),
+	error_message: null,
+	summary: summarizeCheckinItems(items),
+	items,
+});
+
+const buildCompletedVerificationTaskReport = (
+	kind: "verify-active" | "verify-disabled",
+	startedAt: string,
+	report: SiteVerificationBatchResult,
+): SiteTaskReportState => ({
+	kind,
+	status: "completed",
+	runs_at: report.runs_at,
+	started_at: startedAt,
+	finished_at: report.runs_at,
+	progress: buildVerificationTaskProgress(
+		kind,
+		report.items,
+		report.summary.total,
+		report.runs_at,
+	),
+	error_message: null,
+	report,
+});
+
+const buildCompletedRefreshTaskReport = (
+	startedAt: string,
+	report: SiteChannelRefreshBatchReport,
+): SiteTaskReportState => ({
+	kind: "refresh-active",
+	status: "completed",
+	runs_at: report.runs_at,
+	started_at: startedAt,
+	finished_at: report.runs_at,
+	progress: buildRefreshTaskProgress(
+		report.items,
+		report.summary.total,
+		report.runs_at,
+	),
+	error_message: null,
+	report,
+});
+
+const buildFailedTaskReport = (
+	report: SiteTaskReportState,
+	finishedAt: string,
+	message: string,
+): SiteTaskReportState => ({
+	...report,
+	status: "failed",
+	runs_at: finishedAt,
+	finished_at: finishedAt,
+	error_message: message,
+	progress: {
+		...report.progress,
+		current_site_id: null,
+		current_site_name: null,
+		updated_at: finishedAt,
+	},
+});
+
+const hasRunningTaskReport = async (db: D1Database, kind: SiteTaskKind) => {
+	const reports = await listSiteTaskReports(db);
+	const current = reports[kind];
+	return current?.status === "running";
 };
 
 const toCallTokenRows = (
@@ -520,18 +816,53 @@ sites.delete("/:id", async (c) => {
 });
 
 sites.post("/checkin-all", async (c) => {
-	const result = await runCheckinAllViaWorker(c.env.DB, c.env, new Date());
-	await saveSiteTaskReport(c.env.DB, {
-		kind: "checkin",
-		runs_at: result.runsAt,
-		summary: result.summary,
-		items: result.results,
-	});
-	return c.json({
-		results: result.results,
-		summary: result.summary,
-		runs_at: result.runsAt,
-	});
+	if (await hasRunningTaskReport(c.env.DB, "checkin")) {
+		return jsonError(c, 409, "task_already_running", "task_already_running");
+	}
+	const startedAt = new Date().toISOString();
+	let runningReport = buildRunningCheckinTaskReport(startedAt, 0);
+	await saveSiteTaskReport(c.env.DB, runningReport);
+	try {
+		const progressItems: CheckinTaskItem[] = [];
+		const result = await runCheckinAllViaWorker(
+			c.env.DB,
+			c.env,
+			new Date(),
+			async ({ item, total }) => {
+				progressItems.push(item);
+				runningReport = buildRunningCheckinTaskReport(
+					startedAt,
+					total,
+					progressItems,
+				);
+				runningReport.progress.current_site_id = item.id;
+				runningReport.progress.current_site_name = item.name;
+				await saveSiteTaskReport(c.env.DB, runningReport);
+			},
+		);
+		const completedReport = buildCompletedCheckinTaskReport(
+			startedAt,
+			result.runsAt,
+			result.results,
+		);
+		await saveSiteTaskReport(c.env.DB, completedReport);
+		return c.json({
+			results: result.results,
+			summary: result.summary,
+			runs_at: result.runsAt,
+		});
+	} catch (error) {
+		const finishedAt = new Date().toISOString();
+		await saveSiteTaskReport(
+			c.env.DB,
+			buildFailedTaskReport(
+				runningReport,
+				finishedAt,
+				error instanceof Error ? error.message : "签到任务执行失败",
+			),
+		);
+		throw error;
+	}
 });
 
 sites.post("/:id/verify", async (c) => {
@@ -562,22 +893,66 @@ sites.post("/:id/cooling-models/reset", async (c) => {
 });
 
 sites.post("/verify-batch", async (c) => {
+	if (await hasRunningTaskReport(c.env.DB, "verify-active")) {
+		return jsonError(c, 409, "task_already_running", "task_already_running");
+	}
 	const body = await c.req.json().catch(() => null);
 	const ids = Array.isArray(body?.ids)
 		? body.ids
 				.map((item: unknown) => String(item ?? "").trim())
 				.filter((item: string) => item.length > 0)
 		: undefined;
-	const result = await verifySitesByIds(c.env.DB, ids);
-	await saveSiteTaskReport(c.env.DB, {
-		kind: "verify-active",
-		runs_at: result.runs_at,
-		report: result,
+	const startedAt = new Date().toISOString();
+	const allChannels = await listChannels(c.env.DB, {
+		orderBy: "created_at",
+		order: "DESC",
 	});
-	if (result.items.length > 0) {
-		await invalidateSelectionHotCache(c.env.KV_HOT);
+	const total =
+		ids && ids.length > 0
+			? allChannels.filter((channel) => ids.includes(channel.id)).length
+			: allChannels.filter((channel) => channel.status === "active").length;
+	let runningReport = buildRunningVerificationTaskReport(
+		"verify-active",
+		startedAt,
+		total,
+	);
+	await saveSiteTaskReport(c.env.DB, runningReport);
+	try {
+		const progressItems: SiteVerificationResult[] = [];
+		const result = await verifySitesByIds(c.env.DB, ids, async ({ item }) => {
+			progressItems.push(item.result);
+			runningReport = buildRunningVerificationTaskReport(
+				"verify-active",
+				startedAt,
+				total,
+				progressItems,
+			);
+			runningReport.progress.current_site_id = item.site_id;
+			runningReport.progress.current_site_name = item.site_name;
+			await saveSiteTaskReport(c.env.DB, runningReport);
+		});
+		const completedReport = buildCompletedVerificationTaskReport(
+			"verify-active",
+			startedAt,
+			result,
+		);
+		await saveSiteTaskReport(c.env.DB, completedReport);
+		if (result.items.length > 0) {
+			await invalidateSelectionHotCache(c.env.KV_HOT);
+		}
+		return c.json(result);
+	} catch (error) {
+		const finishedAt = new Date().toISOString();
+		await saveSiteTaskReport(
+			c.env.DB,
+			buildFailedTaskReport(
+				runningReport,
+				finishedAt,
+				error instanceof Error ? error.message : "批量验证执行失败",
+			),
+		);
+		throw error;
 	}
-	return c.json(result);
 });
 
 sites.post("/probe-recovery", async (c) => {
@@ -599,43 +974,130 @@ sites.post("/probe-recovery", async (c) => {
 });
 
 sites.post("/recovery-evaluate", async (c) => {
-	const result = await recoverDisabledChannelsViaWorker(c.env.DB, c.env);
-	if (result.recovered > 0) {
-		await invalidateSelectionHotCache(c.env.KV_HOT);
+	if (await hasRunningTaskReport(c.env.DB, "verify-disabled")) {
+		return jsonError(c, 409, "task_already_running", "task_already_running");
 	}
-	const verificationItems = result.items
-		.map((item) => item.verification)
-		.filter(
-			(
-				item,
-			): item is NonNullable<(typeof result.items)[number]["verification"]> =>
-				Boolean(item),
-		);
-	const report = await buildVerificationBatchResult(verificationItems);
-	await saveSiteTaskReport(c.env.DB, {
-		kind: "verify-disabled",
-		runs_at: report.runs_at,
-		report,
+	const startedAt = new Date().toISOString();
+	const disabledChannels = await listChannels(c.env.DB, {
+		filters: { status: "disabled" },
+		orderBy: "created_at",
+		order: "DESC",
 	});
-	return c.json(report);
+	const total = disabledChannels.filter(
+		(channel) => Number(channel.auto_disabled_permanent ?? 0) <= 0,
+	).length;
+	let runningReport = buildRunningVerificationTaskReport(
+		"verify-disabled",
+		startedAt,
+		total,
+	);
+	await saveSiteTaskReport(c.env.DB, runningReport);
+	try {
+		const progressItems: SiteVerificationResult[] = [];
+		const result = await recoverDisabledChannelsViaWorker(
+			c.env.DB,
+			c.env,
+			async ({ item }) => {
+				if (item.verification) {
+					progressItems.push(item.verification);
+				}
+				runningReport = buildRunningVerificationTaskReport(
+					"verify-disabled",
+					startedAt,
+					total,
+					progressItems,
+				);
+				runningReport.progress.current_site_id = item.site_id;
+				runningReport.progress.current_site_name = item.site_name;
+				await saveSiteTaskReport(c.env.DB, runningReport);
+			},
+		);
+		if (result.recovered > 0) {
+			await invalidateSelectionHotCache(c.env.KV_HOT);
+		}
+		const verificationItems = result.items
+			.map((item) => item.verification)
+			.filter(
+				(
+					item,
+				): item is NonNullable<(typeof result.items)[number]["verification"]> =>
+					Boolean(item),
+			);
+		const report = await buildVerificationBatchResult(verificationItems);
+		const completedReport = buildCompletedVerificationTaskReport(
+			"verify-disabled",
+			startedAt,
+			report,
+		);
+		await saveSiteTaskReport(c.env.DB, completedReport);
+		return c.json(report);
+	} catch (error) {
+		const finishedAt = new Date().toISOString();
+		await saveSiteTaskReport(
+			c.env.DB,
+			buildFailedTaskReport(
+				runningReport,
+				finishedAt,
+				error instanceof Error ? error.message : "恢复评估执行失败",
+			),
+		);
+		throw error;
+	}
 });
 
 sites.post("/refresh-active", async (c) => {
-	const result = await refreshActiveChannelsViaWorker(c.env.DB, c.env);
-	const report = {
-		summary: result.summary,
-		items: result.items,
-		runs_at: result.runsAt,
-	};
-	await saveSiteTaskReport(c.env.DB, {
-		kind: "refresh-active",
-		runs_at: report.runs_at,
-		report,
-	});
-	if (result.summary.success > 0) {
-		await invalidateSelectionHotCache(c.env.KV_HOT);
+	if (await hasRunningTaskReport(c.env.DB, "refresh-active")) {
+		return jsonError(c, 409, "task_already_running", "task_already_running");
 	}
-	return c.json(report);
+	const startedAt = new Date().toISOString();
+	const activeChannels = await listChannels(c.env.DB, {
+		filters: { status: "active" },
+		orderBy: "created_at",
+		order: "DESC",
+	});
+	const total = activeChannels.length;
+	let runningReport = buildRunningRefreshTaskReport(startedAt, total);
+	await saveSiteTaskReport(c.env.DB, runningReport);
+	try {
+		const progressItems: SiteChannelRefreshBatchReport["items"] = [];
+		const result = await refreshActiveChannelsViaWorker(
+			c.env.DB,
+			c.env,
+			async ({ item }) => {
+				progressItems.push(item.item);
+				runningReport = buildRunningRefreshTaskReport(
+					startedAt,
+					total,
+					progressItems,
+				);
+				runningReport.progress.current_site_id = item.site_id;
+				runningReport.progress.current_site_name = item.site_name;
+				await saveSiteTaskReport(c.env.DB, runningReport);
+			},
+		);
+		const report = {
+			summary: result.summary,
+			items: result.items,
+			runs_at: result.runsAt,
+		};
+		const completedReport = buildCompletedRefreshTaskReport(startedAt, report);
+		await saveSiteTaskReport(c.env.DB, completedReport);
+		if (result.summary.success > 0) {
+			await invalidateSelectionHotCache(c.env.KV_HOT);
+		}
+		return c.json(report);
+	} catch (error) {
+		const finishedAt = new Date().toISOString();
+		await saveSiteTaskReport(
+			c.env.DB,
+			buildFailedTaskReport(
+				runningReport,
+				finishedAt,
+				error instanceof Error ? error.message : "批量更新执行失败",
+			),
+		);
+		throw error;
+	}
 });
 
 sites.post("/:id/checkin", async (c) => {

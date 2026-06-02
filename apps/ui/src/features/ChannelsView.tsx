@@ -847,6 +847,17 @@ export const ChannelsView = ({
 		return siteSort.direction === "asc" ? "▲" : "▼";
 	};
 	const getTaskStatusText = (kind: SiteTaskKind) => {
+		const task = taskReports[kind];
+		if (task?.status === "running") {
+			const progressLabel =
+				task.progress.total > 0
+					? `${task.progress.completed}/${task.progress.total}`
+					: "准备中";
+			const currentLabel = task.progress.current_site_name
+				? ` · ${task.progress.current_site_name}`
+				: "";
+			return `进行中 ${progressLabel}${currentLabel}`;
+		}
 		if (kind === "checkin") {
 			if (!checkinTask || checkinTask.kind !== "checkin") {
 				return "暂无";
@@ -905,6 +916,12 @@ export const ChannelsView = ({
 		if (!taskReports[kind]) {
 			return "border-white/60 bg-white/65 text-[color:var(--app-ink-muted)]/80";
 		}
+		if (taskReports[kind]?.status === "running") {
+			return "border-sky-200 bg-sky-50/90 text-sky-700";
+		}
+		if (taskReports[kind]?.status === "failed") {
+			return "border-rose-200 bg-rose-50/90 text-rose-700";
+		}
 		if (kind === "checkin") {
 			return checkinTask &&
 				checkinTask.kind === "checkin" &&
@@ -935,6 +952,27 @@ export const ChannelsView = ({
 				refreshTask.report.summary.warning > 0)
 			? "border-amber-200 bg-amber-50/90 text-amber-700"
 			: "border-slate-200 bg-slate-50/90 text-slate-600";
+	};
+	const getTaskDialogDescription = (
+		task: SiteTaskReportMap[SiteTaskKind] | undefined,
+	) => {
+		if (!task) {
+			return "";
+		}
+		if (task.status === "running") {
+			const progressLabel =
+				task.progress.total > 0
+					? `${task.progress.completed}/${task.progress.total}`
+					: "准备中";
+			const currentLabel = task.progress.current_site_name
+				? `，当前：${task.progress.current_site_name}`
+				: "";
+			return `开始于 ${formatTaskDateTime(task.started_at)}，正在执行，已完成 ${progressLabel}${currentLabel}。`;
+		}
+		if (task.status === "failed") {
+			return `最后记录 ${formatTaskDateTime(task.runs_at)}，执行失败：${task.error_message || "未知错误"}。`;
+		}
+		return `最后记录 ${formatTaskDateTime(task.runs_at)}。`;
 	};
 	const openTaskReport = (kind: SiteTaskKind) => {
 		const hasReport = Boolean(taskReports[kind]);
@@ -1653,7 +1691,7 @@ export const ChannelsView = ({
 							<div>
 								<DialogTitle>签到已启用站点</DialogTitle>
 								<DialogDescription>
-									最后记录 {formatTaskDateTime(checkinTask.runs_at)}。
+									{getTaskDialogDescription(checkinTask)}
 								</DialogDescription>
 							</div>
 							<Button size="sm" type="button" onClick={closeTaskReport}>
@@ -1714,7 +1752,7 @@ export const ChannelsView = ({
 							<div>
 								<DialogTitle>检查启用渠道</DialogTitle>
 								<DialogDescription>
-									最后记录 {formatTaskDateTime(verifyActiveTask.runs_at)}。
+									{getTaskDialogDescription(verifyActiveTask)}
 								</DialogDescription>
 							</div>
 							<Button size="sm" type="button" onClick={closeTaskReport}>
@@ -1829,7 +1867,7 @@ export const ChannelsView = ({
 							<div>
 								<DialogTitle>检查停用渠道</DialogTitle>
 								<DialogDescription>
-									最后记录 {formatTaskDateTime(verifyDisabledTask.runs_at)}。
+									{getTaskDialogDescription(verifyDisabledTask)}
 								</DialogDescription>
 							</div>
 							<Button size="sm" type="button" onClick={closeTaskReport}>
@@ -1941,7 +1979,7 @@ export const ChannelsView = ({
 						<div>
 							<DialogTitle>更新启用渠道</DialogTitle>
 							<DialogDescription>
-								最后记录 {formatTaskDateTime(refreshTask.runs_at)}。
+								{getTaskDialogDescription(refreshTask)}
 							</DialogDescription>
 						</div>
 						<Button size="sm" type="button" onClick={closeTaskReport}>
@@ -2203,6 +2241,7 @@ export const ChannelsView = ({
 										: task.kind === "verify-disabled"
 											? isRecoveryEvaluate
 											: isRefreshingAll;
+							const running = taskReports[task.kind]?.status === "running";
 							return (
 								<div
 									class="flex shrink-0 items-center gap-1.5 rounded-full border border-white/70 bg-white/72 px-1.5 py-1 shadow-[0_6px_18px_rgba(15,23,42,0.04)]"
@@ -2212,10 +2251,10 @@ export const ChannelsView = ({
 										class="h-8 whitespace-nowrap rounded-full px-3 text-xs"
 										size="sm"
 										type="button"
-										disabled={pending}
+										disabled={pending || running}
 										onClick={() => runTask(task.kind)}
 									>
-										{pending ? task.pendingLabel : task.label}
+										{pending || running ? task.pendingLabel : task.label}
 									</Button>
 									<button
 										class={`inline-flex h-8 items-center rounded-full border px-3 text-[11px] leading-none ${

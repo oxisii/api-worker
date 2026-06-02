@@ -12,6 +12,7 @@ vi.mock("../../apps/worker/src/wasm/core", () => ({
 	adaptSseLineViaWasm: vi.fn(),
 	applyGeminiModelToPathViaWasm: vi.fn(),
 	buildUpstreamChatRequestViaWasm: vi.fn(),
+	createWeightedOrderIndicesViaWasm: vi.fn(),
 	detectDownstreamProviderViaWasm: vi.fn(),
 	detectEndpointTypeViaWasm: vi.fn(),
 	geminiUsageTokensViaWasm: vi.fn(),

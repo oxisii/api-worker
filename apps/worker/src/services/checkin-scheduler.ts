@@ -155,7 +155,22 @@ export class CheckinScheduler {
 			const result = await runCheckinAllViaWorker(this.env.DB, this.env, now);
 			await saveSiteTaskReport(this.env.DB, {
 				kind: "checkin",
+				status: "completed",
 				runs_at: result.runsAt,
+				started_at: result.runsAt,
+				finished_at: result.runsAt,
+				progress: {
+					total: result.summary.total,
+					completed: result.summary.total,
+					success: result.summary.success,
+					warning: 0,
+					failed: result.summary.failed,
+					skipped: result.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: result.runsAt,
+				},
+				error_message: null,
 				summary: result.summary,
 				items: result.results,
 			});
@@ -188,7 +203,22 @@ export class CheckinScheduler {
 				};
 				await saveSiteTaskReport(this.env.DB, {
 					kind: "refresh-active",
+					status: "completed",
 					runs_at: report.runs_at,
+					started_at: report.runs_at,
+					finished_at: report.runs_at,
+					progress: {
+						total: report.summary.total,
+						completed: report.summary.total,
+						success: report.summary.success,
+						warning: report.summary.warning,
+						failed: report.summary.failed,
+						skipped: 0,
+						current_site_id: null,
+						current_site_name: null,
+						updated_at: report.runs_at,
+					},
+					error_message: null,
 					report,
 				});
 				if (refreshResult.summary.success > 0) {
@@ -233,7 +263,22 @@ export class CheckinScheduler {
 				const report = await buildVerificationBatchResult(verificationItems);
 				await saveSiteTaskReport(this.env.DB, {
 					kind: "verify-disabled",
+					status: "completed",
 					runs_at: report.runs_at,
+					started_at: report.runs_at,
+					finished_at: report.runs_at,
+					progress: {
+						total: report.summary.total,
+						completed: report.summary.total,
+						success: report.summary.recoverable,
+						warning: 0,
+						failed: report.summary.not_recoverable + report.summary.failed,
+						skipped: report.summary.skipped,
+						current_site_id: null,
+						current_site_name: null,
+						updated_at: report.runs_at,
+					},
+					error_message: null,
 					report,
 				});
 				if (recoveryResult.recovered > 0) {

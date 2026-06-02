@@ -89,7 +89,7 @@ dashboard.get("/", async (c) => {
 
 	const summary = await db
 		.prepare(
-			`SELECT COUNT(*) as total_requests, COALESCE(SUM(total_tokens), 0) as total_tokens, COALESCE(AVG(latency_ms), 0) as avg_latency, COALESCE(SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END), 0) as total_errors FROM usage_logs${sql}`,
+			`SELECT COUNT(*) as total_requests, COALESCE(SUM(total_tokens), 0) as total_tokens, COALESCE(AVG(latency_ms), 0) as avg_latency, COALESCE(SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END), 0) as total_errors, COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens, COALESCE(SUM(cache_write_input_tokens), 0) as cache_write_input_tokens, COALESCE(SUM(uncached_input_tokens), 0) as uncached_input_tokens, COALESCE(SUM(billable_input_tokens), 0) as billable_input_tokens FROM usage_logs${sql}`,
 		)
 		.bind(...params)
 		.first();
@@ -185,6 +185,10 @@ dashboard.get("/", async (c) => {
 			total_tokens: 0,
 			avg_latency: 0,
 			total_errors: 0,
+			cache_read_input_tokens: 0,
+			cache_write_input_tokens: 0,
+			uncached_input_tokens: 0,
+			billable_input_tokens: 0,
 		},
 		chargeByCurrency: (chargeByCurrency.results ?? []).map((row) => ({
 			currency: String(row.currency || "USD").toUpperCase(),
