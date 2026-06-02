@@ -21,6 +21,7 @@ import {
 	DialogTitle,
 } from "./components/ui";
 import { createApiFetch } from "./core/api";
+import { reconcileCanonicalModelSyncResult } from "./core/canonical-model-sync";
 import {
 	initialBackupSettings,
 	initialDashboardQuery,
@@ -643,6 +644,14 @@ const App = () => {
 		useState<CanonicalModelSyncResult | null>(() =>
 			loadCanonicalModelSyncResult(),
 		);
+	const visibleCanonicalModelSyncResult = useMemo(
+		() =>
+			reconcileCanonicalModelSyncResult(
+				canonicalModelSyncResult,
+				canonicalModels,
+			),
+		[canonicalModelSyncResult, canonicalModels],
+	);
 	const [lastPricingSyncResult, setLastPricingSyncResult] =
 		useState<PricingSyncResult | null>(null);
 	const [backupSettings, setBackupSettings] = useState<BackupSettings>(
@@ -3500,8 +3509,8 @@ const App = () => {
 	}, [usageTotalPages]);
 
 	useEffect(() => {
-		persistCanonicalModelSyncResult(canonicalModelSyncResult);
-	}, [canonicalModelSyncResult]);
+		persistCanonicalModelSyncResult(visibleCanonicalModelSyncResult);
+	}, [visibleCanonicalModelSyncResult]);
 
 	const activeLabel = useMemo(
 		() => tabs.find((tab) => tab.id === activeTab)?.label ?? "管理台",
@@ -3605,7 +3614,7 @@ const App = () => {
 						isActionPending(buildActionKey("canonical-model:update"))
 					}
 					isSyncing={isActionPending(buildActionKey("canonical-model:sync"))}
-					syncResult={canonicalModelSyncResult}
+					syncResult={visibleCanonicalModelSyncResult}
 					onCreate={handleCanonicalModelCreate}
 					onUpdate={handleCanonicalModelUpdate}
 					onDelete={requestCanonicalModelDelete}

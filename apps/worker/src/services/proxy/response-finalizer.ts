@@ -35,6 +35,7 @@ export function buildAttemptFailureResponse(ctx: any): Response | null {
 		attemptsExecuted,
 		attemptFailures,
 		ordered,
+		attemptPlan,
 		traceId,
 		responsesToolCallMismatchChannels,
 		withTraceHeader,
@@ -59,7 +60,7 @@ export function buildAttemptFailureResponse(ctx: any): Response | null {
 			error: "proxy_all_attempts_failed",
 			code: "proxy_all_attempts_failed",
 			trace_id: traceId,
-			attempt_total: ordered.length,
+			attempt_total: attemptPlan.length,
 			attempt_failed: attemptFailures.length,
 			status_counts: summary.statusCounts,
 			code_counts: summary.codeCounts,
@@ -86,18 +87,18 @@ export function buildAttemptFailureResponse(ctx: any): Response | null {
 		return jsonErrorWithTrace(502, errorCode, errorCode);
 	}
 
-	if (ordered.length > 0 && attemptsExecuted === 0) {
+	if (attemptPlan.length > 0 && attemptsExecuted === 0) {
 		const skippedChannels = Array.from(
 			new Map(
-				ordered.map((channel: any) => [
-					channel.id,
+				attemptPlan.map((item: any) => [
+					item.channel.id,
 					{
-						channelId: channel.id,
-						channelName: channel.name ?? null,
+						channelId: item.channel.id,
+						channelName: item.channel.name ?? null,
 						reason: "skipped_before_upstream_call",
-						recordModel: downstreamModel,
+						recordModel: item.model ?? downstreamModel,
 						upstreamProvider: downstreamProvider,
-						hasModelList: (callTokenMap.get(channel.id) ?? []).some(
+						hasModelList: (callTokenMap.get(item.channel.id) ?? []).some(
 							(token: any) => Boolean(token.models_json),
 						),
 						tokenId: null,

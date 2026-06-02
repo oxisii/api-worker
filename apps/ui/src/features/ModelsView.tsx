@@ -148,11 +148,11 @@ export const ModelsView = ({ models }: ModelsViewProps) => {
 						<TableHeader>
 							<TableRow>
 								{visibleColumnSet.has("model") && <TableHead>模型</TableHead>}
-								{visibleColumnSet.has("channels") && (
-									<TableHead>渠道</TableHead>
-								)}
 								{visibleColumnSet.has("aliases") && (
 									<TableHead>实际别名</TableHead>
+								)}
+								{visibleColumnSet.has("channels") && (
+									<TableHead>渠道</TableHead>
 								)}
 							</TableRow>
 						</TableHeader>

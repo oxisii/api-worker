@@ -33,7 +33,10 @@ import {
 } from "../../../worker/src/services/channel-model-capabilities";
 import { listActiveChannels } from "../../../worker/src/services/channel-repo";
 import { type ChannelRecord } from "../../../worker/src/services/channels";
-import { selectCandidateChannels } from "../../../worker/src/services/channel-routing";
+import {
+	buildChannelAttemptPlan,
+	selectCandidateChannels,
+} from "../../../worker/src/services/channel-routing";
 import { adaptChatResponse } from "../../../worker/src/services/chat-response-adapter";
 import {
 	buildActiveChannelsKey,
@@ -45,7 +48,10 @@ import {
 	writeHotJson,
 } from "../../../worker/src/services/hot-kv";
 import { shouldCooldown } from "../../../worker/src/services/model-cooldown";
-import { resolveCanonicalModel } from "../../../worker/src/services/model-normalization";
+import {
+	listAliasesForCanonicalModel,
+	resolveCanonicalModel,
+} from "../../../worker/src/services/model-normalization";
 import {
 	buildProxyErrorCodeSet,
 	resolveProxyErrorDecision,
@@ -476,6 +482,16 @@ proxy.all("/*", tokenAuth, async (c) => {
 	);
 	const canonicalModel = requestModelResolution.canonicalModel;
 	const downstreamModel = canonicalModel ?? requestModelRaw;
+	const canonicalAliases =
+		db && canonicalModel
+			? await listAliasesForCanonicalModel(
+					db,
+					canonicalModel,
+					downstreamProvider,
+				).catch(() => [])
+			: canonicalModel
+				? [canonicalModel]
+				: [];
 	const inferredStream =
 		shouldSkipHeavyBodyParsing && requestText
 			? detectStreamFlagFromRawJsonRequest(requestText)
@@ -1105,6 +1121,13 @@ proxy.all("/*", tokenAuth, async (c) => {
 			WEIGHTED_ORDER_FAILED_CODE,
 		);
 	}
+	const attemptPlan = buildChannelAttemptPlan({
+		ordered,
+		downstreamModel,
+		requestModelRaw,
+		canonicalAliases,
+		maxAttempts,
+	});
 	responseCandidateCount = candidates.length;
 	const upstreamTimeoutMs = Math.max(
 		0,
@@ -1389,7 +1412,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 		if (downstreamSignal?.aborted === true) {
 			return false;
 		}
-		if (attemptNumber >= ordered.length) {
+		if (attemptNumber >= attemptPlan.length) {
 			return false;
 		}
 		if (action === "sleep" && retrySleepMs > 0) {
@@ -1493,6 +1516,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 			blockedChannelIds,
 		},
 		ordered,
+		attemptPlan,
 		callTokenMap,
 		downstreamModel,
 		canonicalModel,
@@ -1623,6 +1647,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 		attemptsExecuted,
 		attemptFailures,
 		ordered,
+		attemptPlan,
 		traceId,
 		responsesToolCallMismatchChannels,
 		withTraceHeader,

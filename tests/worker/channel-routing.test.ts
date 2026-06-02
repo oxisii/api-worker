@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { selectCandidateChannels } from "../../apps/worker/src/services/channel-routing";
+import {
+	buildChannelAttemptPlan,
+	selectCandidateChannels,
+} from "../../apps/worker/src/services/channel-routing";
 import type { ChannelRecord } from "../../apps/worker/src/services/channel-types";
 
 function buildChannel(
@@ -82,5 +85,48 @@ describe("channel routing with effective models", () => {
 		);
 
 		expect(candidates).toEqual([]);
+	});
+
+	it("尝试计划会先排当前渠道的原始精确别名，再排同渠道其他候选", () => {
+		const ordered = [
+			buildChannel({
+				id: "channel-a",
+				name: "Channel A",
+				models_json: JSON.stringify([
+					{ id: "gpt-5.2" },
+					{ id: "gpt-5.2-chat-latest" },
+					{ id: "gpt-5.2-2026-05-01" },
+				]),
+			}),
+			buildChannel({
+				id: "channel-b",
+				name: "Channel B",
+				models_json: JSON.stringify([
+					{ id: "gpt-5.2" },
+					{ id: "gpt-5.2-mini" },
+				]),
+			}),
+		];
+
+		const plan = buildChannelAttemptPlan({
+			ordered,
+			downstreamModel: "gpt-5.2",
+			requestModelRaw: "gpt-5.2-chat-latest",
+			canonicalAliases: [
+				"gpt-5.2",
+				"gpt-5.2-chat-latest",
+				"gpt-5.2-2026-05-01",
+				"gpt-5.2-mini",
+			],
+			maxAttempts: 6,
+		});
+
+		expect(plan.map((item) => `${item.channel.id}:${item.model}`)).toEqual([
+			"channel-a:gpt-5.2-chat-latest",
+			"channel-a:gpt-5.2",
+			"channel-a:gpt-5.2-2026-05-01",
+			"channel-b:gpt-5.2",
+			"channel-b:gpt-5.2-mini",
+		]);
 	});
 });

@@ -42,6 +42,8 @@ export type PreparedAttemptRequest = {
 export async function prepareAttemptRequest(options: {
 	channel: any;
 	attemptTarget: any;
+	upstreamModelOverride?: string | null;
+	recordModelOverride?: string | null;
 	requestHeaders: Headers;
 	targetPath: string;
 	effectiveRequestText: string;
@@ -62,8 +64,10 @@ export async function prepareAttemptRequest(options: {
 }): Promise<PreparedAttemptRequest | null> {
 	const metadata = options.attemptTarget.metadata;
 	let upstreamProvider = options.attemptTarget.upstreamProvider;
-	const upstreamModel = options.attemptTarget.upstreamModel;
-	const recordModel = options.attemptTarget.recordModel;
+	const upstreamModel =
+		options.upstreamModelOverride ?? options.attemptTarget.upstreamModel;
+	const recordModel =
+		options.recordModelOverride ?? options.attemptTarget.recordModel;
 	const tokenSelection = options.attemptTarget.tokenSelection;
 
 	const baseUrl = resolveChannelBaseUrl(options.channel);

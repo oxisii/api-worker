@@ -1,6 +1,7 @@
 export async function runProxyAttempts(ctx: any): Promise<any> {
 	const {
 		ordered,
+		attemptPlan,
 		callTokenMap,
 		downstreamModel,
 		canonicalModel,
@@ -140,7 +141,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		blockedChannelIds,
 	});
 	if (shouldTryLargeRequestDispatch) {
-		for (const channel of ordered) {
+		for (const item of attemptPlan) {
+			const channel = item.channel;
+			const attemptModel = item.model;
 			const attemptStart = Date.now();
 			const attemptStartedAt = new Date(attemptStart).toISOString();
 			const attemptTarget = resolveChannelAttemptTarget({
@@ -150,7 +153,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				verifiedModelsByChannel,
 				endpointType,
 				downstreamProvider,
-				selectionKey: `${traceId}:${channel.id}:${downstreamModel ?? "*"}`,
+				selectionKey: `${traceId}:${channel.id}:${attemptModel ?? "*"}`,
 			});
 			if (!attemptTarget.eligible) {
 				continue;
@@ -158,6 +161,8 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 			const preparedAttempt = await prepareAttemptRequest({
 				channel,
 				attemptTarget,
+				upstreamModelOverride: attemptModel ?? attemptTarget.upstreamModel,
+				recordModelOverride: attemptModel ?? attemptTarget.recordModel,
 				requestHeaders: new Headers(c.req.header()),
 				targetPath,
 				effectiveRequestText,
@@ -825,7 +830,9 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		dispatchHandled = false;
 	}
 	if (!dispatchHandled) {
-		for (const [attemptIndex, channel] of ordered.entries()) {
+		for (const [attemptIndex, item] of attemptPlan.entries()) {
+			const channel = item.channel;
+			const attemptModel = item.model;
 			if (downstreamSignal?.aborted === true) {
 				return done(downstreamAbortResponse());
 			}
@@ -843,7 +850,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				verifiedModelsByChannel,
 				endpointType,
 				downstreamProvider,
-				selectionKey: `${traceId}:${channel.id}:${downstreamModel ?? "*"}`,
+				selectionKey: `${traceId}:${channel.id}:${attemptModel ?? "*"}`,
 				selectionOffset: attemptNumber - 1,
 			});
 			if (!attemptTarget.eligible) {
@@ -855,6 +862,8 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 			const preparedAttempt = await prepareAttemptRequest({
 				channel,
 				attemptTarget,
+				upstreamModelOverride: attemptModel ?? attemptTarget.upstreamModel,
+				recordModelOverride: attemptModel ?? attemptTarget.recordModel,
 				requestHeaders: new Headers(c.req.header()),
 				targetPath,
 				effectiveRequestText,

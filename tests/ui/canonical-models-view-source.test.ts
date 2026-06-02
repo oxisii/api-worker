@@ -14,7 +14,10 @@ describe("canonical models view source contracts", () => {
 		expect(canonicalModelsViewSource).toContain("merge-target-canonical-model");
 		expect(canonicalModelsViewSource).toContain("一键合并可判定冲突");
 		expect(canonicalModelsViewSource).toContain("handleMergeAllResolvableConflicts");
-		expect(canonicalModelsViewSource).toContain("resolveAutoMergeTarget");
+		expect(canonicalModelsViewSource).toContain(
+			"resolveAutomaticConflictTarget",
+		);
+		expect(canonicalModelsViewSource).toContain("resolveManualConflictTarget");
 		expect(canonicalModelsViewSource).toContain("可自动合并");
 	});
 

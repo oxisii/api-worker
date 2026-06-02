@@ -72,6 +72,32 @@ describe("canonical model sync planning", () => {
 		]);
 	});
 
+	it("多规则命中但已经手动归属到其中一个统一名时，不再重复记冲突", () => {
+		const result = planCanonicalModelSync({
+			rules: [
+				{ canonical_model: "gemma-family", import_regex: "gemma-7b" },
+				{ canonical_model: "google/gemma-7b", import_regex: "^gemma-7b-it$" },
+			],
+			candidates: [
+				{
+					alias: "gemma-7b-it",
+					hits: 2,
+					last_seen_at: null,
+					sources: ["usage_request"],
+				},
+			],
+			bindings: new Map([
+				[
+					"gemma-7b-it",
+					createBindingInfo("google/gemma-7b", ["google/gemma-7b"]),
+				],
+			]),
+		});
+
+		expect(result.conflicts).toEqual([]);
+		expect(result.already_bound).toBe(1);
+	});
+
 	it("已归属到其他统一名时进入冲突", () => {
 		const result = planCanonicalModelSync({
 			rules: [

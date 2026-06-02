@@ -22,6 +22,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "../components/ui";
+import {
+	resolveAutomaticConflictTarget,
+	resolveManualConflictTarget,
+} from "../core/canonical-model-conflict-targets";
 import type {
 	CanonicalModelInput,
 	CanonicalModelItem,
@@ -84,18 +88,6 @@ const formatAliasPreview = (item: CanonicalModelItem) =>
 	item.aliases.map((alias) => alias.alias).join(" · ");
 
 const formatSources = (sources: string[]) => sources.join(" / ");
-
-const resolveAutoMergeTarget = (
-	conflict: CanonicalModelSyncConflict,
-): string | null => {
-	if (conflict.existing_canonical_models.length === 1) {
-		return conflict.existing_canonical_models[0] ?? null;
-	}
-	if (conflict.matched_canonical_models.length === 1) {
-		return conflict.matched_canonical_models[0] ?? null;
-	}
-	return null;
-};
 
 const buildMergeTargetOptions = (
 	conflict: CanonicalModelSyncConflict,
@@ -201,7 +193,7 @@ export const CanonicalModelsView = ({
 		() =>
 			(syncResult?.conflicts ?? [])
 				.map((conflict) => {
-					const targetCanonicalModel = resolveAutoMergeTarget(conflict);
+					const targetCanonicalModel = resolveAutomaticConflictTarget(conflict);
 					if (!targetCanonicalModel) {
 						return null;
 					}
@@ -247,7 +239,9 @@ export const CanonicalModelsView = ({
 
 	const openMerge = (conflict: CanonicalModelSyncConflict) => {
 		const targetOptions = buildMergeTargetOptions(conflict);
-		const recommendedTarget = resolvePreferredMergeTarget(targetOptions);
+		const recommendedTarget =
+			resolveManualConflictTarget(conflict) ??
+			resolvePreferredMergeTarget(targetOptions);
 		setError(null);
 		setMergeState({
 			alias: conflict.alias,

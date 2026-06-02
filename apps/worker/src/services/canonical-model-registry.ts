@@ -325,6 +325,23 @@ export function planCanonicalModelSync(options: {
 			unmatched += 1;
 			continue;
 		}
+		const matchedCanonicalModelSet = new Set(matchedCanonicalModels);
+		const boundMatchedCanonicalModels = existingCanonicalModels.filter((item) =>
+			matchedCanonicalModelSet.has(item),
+		);
+		if (binding?.globalCanonicalModel) {
+			if (matchedCanonicalModelSet.has(binding.globalCanonicalModel)) {
+				alreadyBound += 1;
+				continue;
+			}
+		}
+		if (
+			boundMatchedCanonicalModels.length === 1 &&
+			existingCanonicalModels.length === 1
+		) {
+			alreadyBound += 1;
+			continue;
+		}
 		if (matchedCanonicalModels.length > 1) {
 			conflicts.push({
 				alias: candidate.alias,

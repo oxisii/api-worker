@@ -310,3 +310,40 @@ export async function resolveCanonicalModel(
 		matchedBy: "heuristic",
 	};
 }
+
+export async function listAliasesForCanonicalModel(
+	db: D1Database,
+	canonicalModel: string,
+	providerHint?: string | null,
+): Promise<string[]> {
+	const normalizedCanonical = normalizeText(canonicalModel);
+	if (!normalizedCanonical) {
+		return [];
+	}
+	const providerKey = normalizeProviderKey(providerHint);
+	const results = new Set<string>();
+	const appendRows = async (hint: string) => {
+		const rows = await db
+			.prepare(
+				[
+					"SELECT alias FROM model_aliases",
+					"WHERE canonical_model = ? AND provider_hint = ?",
+					"ORDER BY alias ASC",
+				].join(" "),
+			)
+			.bind(normalizedCanonical, hint)
+			.all<{ alias: string | null }>();
+		for (const row of rows.results ?? []) {
+			const alias = normalizeText(row.alias);
+			if (alias) {
+				results.add(alias);
+			}
+		}
+	};
+	if (providerKey) {
+		await appendRows(providerKey);
+	}
+	await appendRows(GLOBAL_PROVIDER_HINT);
+	results.add(normalizedCanonical);
+	return Array.from(results);
+}
