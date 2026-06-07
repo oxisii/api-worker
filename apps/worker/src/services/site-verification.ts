@@ -98,6 +98,20 @@ export type SiteVerificationResult = {
 	};
 	selected_model: string | null;
 	request_entry_format: RequestEntryFormat | null;
+	tried_models: string[];
+	tried_request_formats: RequestEntryFormat[];
+	attempts: Array<{
+		model: string | null;
+		request_model: string | null;
+		request_entry_format: RequestEntryFormat | null;
+		endpoint_type: EndpointType;
+		provider: string;
+		status: "success" | "failed";
+		http_status: number | null;
+		detail_code: string | null;
+		detail_message: string | null;
+		latency_ms: number;
+	}>;
 	selected_token: {
 		id?: string;
 		name?: string;
@@ -255,6 +269,24 @@ function summarizeVerificationDetail(text: string | null): string | null {
 		return null;
 	}
 	return normalized.slice(0, VERIFICATION_ERROR_DETAIL_MAX_LENGTH);
+}
+
+function appendUniqueValue(target: string[], value: string | null | undefined) {
+	const normalized = String(value ?? "").trim();
+	if (!normalized || target.includes(normalized)) {
+		return;
+	}
+	target.push(normalized);
+}
+
+function appendUniqueFormat(
+	target: RequestEntryFormat[],
+	value: RequestEntryFormat | null | undefined,
+) {
+	if (!value || target.includes(value)) {
+		return;
+	}
+	target.push(value);
 }
 
 function buildVerificationProbeBody(
@@ -457,6 +489,9 @@ export async function verifySiteChannel(options: {
 	let selectedToken: VerificationToken | null = null;
 	let tokenSummary: SiteVerificationResult["token_summary"] = null;
 	let trace: SiteVerificationResult["trace"] = {};
+	const attempts: SiteVerificationResult["attempts"] = [];
+	const triedModels: string[] = [];
+	const triedRequestFormats: RequestEntryFormat[] = [];
 	let verifiedTokens = tokens;
 	const verificationRuntime: VerificationRuntimeSettings = {
 		retry_sleep_error_codes:
@@ -523,6 +558,9 @@ export async function verifySiteChannel(options: {
 			stages: { connectivity, capability, service, recovery },
 			selected_model: null,
 			request_entry_format: null,
+			tried_models: [],
+			tried_request_formats: [],
+			attempts: [],
 			selected_token: null,
 			discovered_models: [],
 			token_results: [],
@@ -630,6 +668,9 @@ export async function verifySiteChannel(options: {
 			stages: { connectivity, capability, service, recovery },
 			selected_model: null,
 			request_entry_format: selectedRequestEntryFormat,
+			tried_models: triedModels,
+			tried_request_formats: triedRequestFormats,
+			attempts,
 			selected_token: null,
 			discovered_models: discoveredModels,
 			token_results: tokenResults,
@@ -692,6 +733,9 @@ export async function verifySiteChannel(options: {
 			stages: { connectivity, capability, service, recovery },
 			selected_model: selectedModel,
 			request_entry_format: selectedRequestEntryFormat,
+			tried_models: triedModels,
+			tried_request_formats: triedRequestFormats,
+			attempts,
 			selected_token: null,
 			discovered_models: discoveredModels,
 			token_results: tokenResults,
@@ -754,6 +798,8 @@ export async function verifySiteChannel(options: {
 				);
 				selectedRequestModel = requestModel;
 				selectedRequestEntryFormat = requestFormat;
+				appendUniqueValue(triedModels, selectedModel);
+				appendUniqueFormat(triedRequestFormats, requestFormat);
 				const downstreamBody = buildVerificationProbeBody(
 					requestEndpointType,
 					selectedModel,
@@ -845,6 +891,18 @@ export async function verifySiteChannel(options: {
 								) ?? `HTTP ${response.status}`),
 					};
 					if (response.status === 401 || response.status === 403) {
+						attempts.push({
+							model: selectedModel,
+							request_model: requestModel,
+							request_entry_format: requestFormat,
+							endpoint_type: requestEndpointType,
+							provider: requestProvider,
+							status: "failed",
+							http_status: response.status,
+							detail_code: "auth_failed",
+							detail_message: detail,
+							latency_ms: trace.latency_ms ?? Date.now() - startedAt,
+						});
 						connectivity.status = "fail";
 						connectivity.code = "auth_failed";
 						connectivity.message = "调用令牌校验失败，请检查站点或调用令牌。";
@@ -862,6 +920,18 @@ export async function verifySiteChannel(options: {
 							status: response.status,
 							detail,
 						});
+						attempts.push({
+							model: selectedModel,
+							request_model: requestModel,
+							request_entry_format: requestFormat,
+							endpoint_type: requestEndpointType,
+							provider: requestProvider,
+							status: "failed",
+							http_status: response.status,
+							detail_code: failure.code,
+							detail_message: detail ?? failure.message,
+							latency_ms: trace.latency_ms ?? Date.now() - startedAt,
+						});
 						connectivity.status = "pass";
 						connectivity.code = "reachable";
 						connectivity.message = "站点可达，但服务验证返回错误。";
@@ -876,6 +946,19 @@ export async function verifySiteChannel(options: {
 						continue;
 					}
 					if (!successInspection?.ok) {
+						attempts.push({
+							model: selectedModel,
+							request_model: requestModel,
+							request_entry_format: requestFormat,
+							endpoint_type: requestEndpointType,
+							provider: requestProvider,
+							status: "failed",
+							http_status: response.status,
+							detail_code:
+								successInspection?.code ?? "abnormal_success_response",
+							detail_message: successInspection?.message ?? null,
+							latency_ms: trace.latency_ms ?? Date.now() - startedAt,
+						});
 						connectivity.status = "pass";
 						connectivity.code = "reachable";
 						connectivity.message =
@@ -901,6 +984,19 @@ export async function verifySiteChannel(options: {
 					service.status = "pass";
 					service.code = "service_request_succeeded";
 					service.message = "真实服务验证通过，站点当前可被系统正常使用。";
+					attempts.push({
+						model: selectedModel,
+						request_model: requestModel,
+						request_entry_format: requestFormat,
+						endpoint_type: requestEndpointType,
+						provider: requestProvider,
+						status: "success",
+						http_status: response.status,
+						detail_code: "service_request_succeeded",
+						detail_message:
+							successInspection?.message ?? "service_request_succeeded",
+						latency_ms: trace.latency_ms ?? Date.now() - startedAt,
+					});
 					break;
 				} catch (error) {
 					trace = {
@@ -908,6 +1004,18 @@ export async function verifySiteChannel(options: {
 						detail_code: "network_error",
 						detail_message: (error as Error).message || "network_error",
 					};
+					attempts.push({
+						model: selectedModel,
+						request_model: requestModel,
+						request_entry_format: requestFormat,
+						endpoint_type: requestEndpointType,
+						provider: requestProvider,
+						status: "failed",
+						http_status: null,
+						detail_code: "network_error",
+						detail_message: (error as Error).message || "network_error",
+						latency_ms: trace.latency_ms ?? Date.now() - startedAt,
+					});
 					connectivity.status = "fail";
 					connectivity.code = "network_error";
 					connectivity.message =
@@ -964,6 +1072,9 @@ export async function verifySiteChannel(options: {
 		stages: { connectivity, capability, service, recovery },
 		selected_model: selectedRequestModel ?? selectedModel,
 		request_entry_format: selectedRequestEntryFormat,
+		tried_models: triedModels,
+		tried_request_formats: triedRequestFormats,
+		attempts,
 		selected_token: {
 			id: selectedToken.id,
 			name: selectedToken.name,

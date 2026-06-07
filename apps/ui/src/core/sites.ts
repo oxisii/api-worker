@@ -137,6 +137,40 @@ export const getVerificationFailedTokenIssues = (
 				: `${tokenLabel}：${statusLabel}`;
 		});
 
+export const getVerificationAttemptedModels = (
+	result: SiteVerificationResult,
+) =>
+	(result.tried_models ?? [])
+		.map((item) => String(item ?? "").trim())
+		.filter(Boolean);
+
+export const getVerificationAttemptedFormats = (
+	result: SiteVerificationResult,
+) =>
+	(result.tried_request_formats ?? []).filter(
+		(item): item is RequestEntryFormat => Boolean(item),
+	);
+
+export const getVerificationAttempts = (result: SiteVerificationResult) =>
+	(result.attempts ?? []).filter((item) => Boolean(item));
+
+export const getVerificationAttemptStatusLabel = (
+	status: SiteVerificationResult["attempts"][number]["status"],
+) => (status === "success" ? "成功" : "失败");
+
+export const getVerificationAttemptSummary = (
+	result: SiteVerificationResult,
+) => {
+	const models = getVerificationAttemptedModels(result);
+	const formats = getVerificationAttemptedFormats(result).map((format) =>
+		getRequestEntryFormatLabel(format),
+	);
+	return {
+		models,
+		formats,
+	};
+};
+
 const splitRefreshTokenLabels = (value: string | null | undefined) =>
 	String(value ?? "")
 		.split("、")

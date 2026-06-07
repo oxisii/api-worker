@@ -30,6 +30,10 @@ import {
 	getRefreshFailedTokenLabels,
 	getRefreshFailureDetails,
 	getRefreshSuccessfulTokenLabels,
+	getRequestEntryFormatLabel,
+	getVerificationAttemptStatusLabel,
+	getVerificationAttemptSummary,
+	getVerificationAttempts,
 	formatSiteRequestEntrySummary,
 	getSuggestedActionLabel,
 	getSiteTypeLabel,
@@ -258,6 +262,45 @@ const splitRefreshFailureMessage = (message: string) => {
 		summary: normalized,
 		detail: null,
 	};
+};
+
+const renderVerificationAttemptDetails = (item: SiteVerificationResult) => {
+	const summary = getVerificationAttemptSummary(item);
+	const attempts = getVerificationAttempts(item);
+	return (
+		<div class="space-y-2 rounded-lg bg-slate-50/80 px-2.5 py-2">
+			<p class="text-[11px] font-semibold leading-5 text-[color:var(--app-ink-muted)]">
+				尝试记录
+			</p>
+			<p class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]">
+				模型：{summary.models.length > 0 ? summary.models.join("、") : "-"}
+			</p>
+			<p class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]">
+				格式：{summary.formats.length > 0 ? summary.formats.join("、") : "-"}
+			</p>
+			{attempts.length > 0 ? (
+				<div class="space-y-1">
+					{attempts.map((attempt, index) => (
+						<p
+							class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]"
+							key={`${item.site_id}:attempt:${index}`}
+						>
+							第 {index + 1} 次 ·
+							{getVerificationAttemptStatusLabel(attempt.status)} ·
+							{attempt.request_entry_format
+								? getRequestEntryFormatLabel(attempt.request_entry_format)
+								: attempt.endpoint_type}{" "}
+							· HTTP {attempt.http_status ?? "-"} ·{attempt.model ?? "-"}
+							{attempt.request_model && attempt.request_model !== attempt.model
+								? ` -> ${attempt.request_model}`
+								: ""}
+							{attempt.detail_code ? ` · ${attempt.detail_code}` : ""}
+						</p>
+					))}
+				</div>
+			) : null}
+		</div>
+	);
 };
 
 const getRefreshStatusLabel = (status: SiteChannelRefreshItem["status"]) => {
@@ -1793,6 +1836,7 @@ export const ChannelsView = ({
 													)}
 												</div>
 											) : null}
+											{renderVerificationAttemptDetails(item)}
 											<p class="text-[11px] text-[color:var(--app-ink-muted)]">
 												建议：{getSuggestedActionLabel(item.suggested_action)}
 											</p>
@@ -1900,6 +1944,9 @@ export const ChannelsView = ({
 												<p class="mt-1 text-xs text-[color:var(--app-ink)]">
 													{item.message}
 												</p>
+												<div class="mt-2">
+													{renderVerificationAttemptDetails(item)}
+												</div>
 											</div>
 										</div>
 									))
@@ -1948,6 +1995,9 @@ export const ChannelsView = ({
 														)}
 													</div>
 												) : null}
+												<div class="mt-2">
+													{renderVerificationAttemptDetails(item)}
+												</div>
 											</div>
 										</div>
 									))

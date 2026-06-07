@@ -33,6 +33,9 @@ import {
 } from "./core/constants";
 import {
 	filterSites,
+	getVerificationAttemptStatusLabel,
+	getVerificationAttemptSummary,
+	getVerificationAttempts,
 	getRefreshFailedTokenLabels,
 	getRefreshFailureDetails,
 	getRequestEntryFormatLabel,
@@ -4196,6 +4199,95 @@ const App = () => {
 								</p>
 							</div>
 						</div>
+						{(() => {
+							const attemptSummary = getVerificationAttemptSummary(
+								siteVerificationDialog.result,
+							);
+							const attempts = getVerificationAttempts(
+								siteVerificationDialog.result,
+							);
+							return (
+								<div class="mt-4 rounded-2xl border border-white/60 bg-white/75 px-4 py-4">
+									<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+										尝试记录
+									</p>
+									<div class="mt-3 grid gap-3 md:grid-cols-2">
+										<div>
+											<p class="text-[11px] font-semibold text-[color:var(--app-ink-muted)]">
+												尝试模型
+											</p>
+											<p class="mt-1 break-words text-xs text-[color:var(--app-ink)]">
+												{attemptSummary.models.length > 0
+													? attemptSummary.models.join("、")
+													: "-"}
+											</p>
+										</div>
+										<div>
+											<p class="text-[11px] font-semibold text-[color:var(--app-ink-muted)]">
+												尝试格式
+											</p>
+											<p class="mt-1 break-words text-xs text-[color:var(--app-ink)]">
+												{attemptSummary.formats.length > 0
+													? attemptSummary.formats.join("、")
+													: "-"}
+											</p>
+										</div>
+									</div>
+									<div class="mt-3 space-y-2">
+										{attempts.length === 0 ? (
+											<p class="text-xs text-[color:var(--app-ink-muted)]">
+												当前没有可展示的逐次尝试日志。
+											</p>
+										) : (
+											attempts.map((attempt, index) => (
+												<div
+													class="rounded-xl border border-white/60 bg-slate-50/70 px-3 py-3"
+													key={`verification-attempt:${index}`}
+												>
+													<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+														<span class="font-semibold text-[color:var(--app-ink)]">
+															第 {index + 1} 次
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{getVerificationAttemptStatusLabel(
+																attempt.status,
+															)}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{attempt.request_entry_format
+																? getRequestEntryFormatLabel(
+																		attempt.request_entry_format,
+																	)
+																: attempt.endpoint_type}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															HTTP {attempt.http_status ?? "-"}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{attempt.latency_ms} ms
+														</span>
+													</div>
+													<p class="mt-2 break-words text-xs text-[color:var(--app-ink)]">
+														模型：
+														{attempt.model ?? "-"}
+														{attempt.request_model &&
+														attempt.request_model !== attempt.model
+															? ` · 上游请求：${attempt.request_model}`
+															: ""}
+													</p>
+													<p class="mt-1 break-words text-[11px] text-[color:var(--app-ink-muted)]">
+														{attempt.detail_code ?? "-"}
+														{attempt.detail_message
+															? ` · ${attempt.detail_message}`
+															: ""}
+													</p>
+												</div>
+											))
+										)}
+									</div>
+								</div>
+							);
+						})()}
 						{getVerificationFailedTokenIssues(siteVerificationDialog.result)
 							.length > 0 ? (
 							<div class="mt-4 rounded-2xl border border-white/60 bg-white/75 px-4 py-4">

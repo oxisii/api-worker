@@ -128,6 +128,37 @@ describe("site verification", () => {
 
 		expect(result.verdict).toBe("serving");
 		expect(result.request_entry_format).toBe("openai_chat");
+		expect(result.tried_models).toEqual(["gpt-4.1"]);
+		expect(result.tried_request_formats).toEqual([
+			"openai_responses",
+			"openai_chat",
+		]);
+		expect(result.attempts).toEqual([
+			{
+				model: "gpt-4.1",
+				request_model: "gpt-4.1",
+				request_entry_format: "openai_responses",
+				endpoint_type: "responses",
+				provider: "openai",
+				status: "failed",
+				http_status: null,
+				detail_code: "network_error",
+				detail_message: "socket hang up",
+				latency_ms: expect.any(Number),
+			},
+			{
+				model: "gpt-4.1",
+				request_model: "gpt-4.1",
+				request_entry_format: "openai_chat",
+				endpoint_type: "chat",
+				provider: "openai",
+				status: "success",
+				http_status: 200,
+				detail_code: "service_request_succeeded",
+				detail_message: "service_request_succeeded",
+				latency_ms: expect.any(Number),
+			},
+		]);
 		expect(postCalls).toEqual([
 			{ path: "/v1/responses", model: "gpt-4.1" },
 			{ path: "/v1/chat/completions", model: "gpt-4.1" },
@@ -259,6 +290,10 @@ describe("site verification", () => {
 					recovery: { status: "skip", code: "not_disabled", message: "ok" },
 				},
 				selected_model: "gpt-4.1",
+				request_entry_format: "openai_responses",
+				tried_models: ["gpt-4.1"],
+				tried_request_formats: ["openai_responses"],
+				attempts: [],
 				selected_token: null,
 				discovered_models: [],
 				token_results: [],

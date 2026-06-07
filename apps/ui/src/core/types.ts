@@ -95,6 +95,20 @@ export type SiteVerificationResult = {
 	};
 	selected_model: string | null;
 	request_entry_format?: RequestEntryFormat | null;
+	tried_models: string[];
+	tried_request_formats: RequestEntryFormat[];
+	attempts: Array<{
+		model: string | null;
+		request_model: string | null;
+		request_entry_format: RequestEntryFormat | null;
+		endpoint_type: "chat" | "responses";
+		provider: string;
+		status: "success" | "failed";
+		http_status: number | null;
+		detail_code: string | null;
+		detail_message: string | null;
+		latency_ms: number;
+	}>;
 	selected_token: {
 		id?: string;
 		name?: string;
