@@ -719,4 +719,113 @@ describe("canonical model sync planning", () => {
 			}),
 		]);
 	});
+
+	it("GPT 包装前缀与 Gemini 稳定尾缀可以被安全归纳", () => {
+		const result = planCanonicalModelSync({
+			rules: [
+				{
+					canonical_model: "openai/gpt-5.3",
+					import_regex:
+						"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5\\.3(?:(?:-chat(?:-latest)?|-instant|-(?:high|low|medium|xhigh|openai-compact)|\\((?:auto|high|low|medium|xhigh)\\)|-\\d{4}-\\d{2}-\\d{2}))*$",
+				},
+				{
+					canonical_model: "openai/gpt-5.3-codex",
+					import_regex:
+						"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5\\.3(?:\\.\\d+)*-codex(?:(?:-(?:spark|high|low|medium|xhigh))?(?:-openai-compact)?|\\((?:high|low|medium|xhigh)\\))$",
+				},
+				{
+					canonical_model: "openai/gpt-5.4",
+					import_regex:
+						"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5\\.4(?:\\.\\d+)*(?:(?:-(?:high|low|medium|xhigh|openai-compact)|\\((?:high|low|medium|xhigh)\\)|-\\d{4}-\\d{2}-\\d{2}))*$",
+				},
+				{
+					canonical_model: "anthropic/claude-sonnet-4.6",
+					import_regex:
+						"^(?:anthropic/)?claude-sonnet-4(?:[.-]6)(?:-\\d{8})?(?:-thinking)?$",
+				},
+				{
+					canonical_model: "google/gemini-3-flash-preview",
+					import_regex:
+						"^(?:google/)?gemini-3-flash-preview(?:[-:][\\w.-]+)?$",
+				},
+			],
+			candidates: [
+				{
+					alias: "cc-gpt-5.4",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["channel_capability"],
+				},
+				{
+					alias: "claude-gpt-5.4",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["channel_capability"],
+				},
+				{
+					alias: "gpt-5.3",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["usage_request"],
+				},
+				{
+					alias: "gpt-5.3-chat",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["usage_request"],
+				},
+				{
+					alias: "openai:gpt-5.3-codex",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["attempt_upstream"],
+				},
+				{
+					alias: "gemini-3-flash-preview:cloud",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["pricing"],
+				},
+				{
+					alias: "claude-sonnet-4-6",
+					hits: 1,
+					last_seen_at: null,
+					sources: ["attempt_request"],
+				},
+			],
+			bindings: new Map(),
+		});
+
+		expect(result.conflicts).toEqual([]);
+		expect(result.imported).toEqual([
+			expect.objectContaining({
+				alias: "cc-gpt-5.4",
+				canonical_model: "openai/gpt-5.4",
+			}),
+			expect.objectContaining({
+				alias: "claude-gpt-5.4",
+				canonical_model: "openai/gpt-5.4",
+			}),
+			expect.objectContaining({
+				alias: "gpt-5.3",
+				canonical_model: "openai/gpt-5.3",
+			}),
+			expect.objectContaining({
+				alias: "gpt-5.3-chat",
+				canonical_model: "openai/gpt-5.3",
+			}),
+			expect.objectContaining({
+				alias: "openai:gpt-5.3-codex",
+				canonical_model: "openai/gpt-5.3-codex",
+			}),
+			expect.objectContaining({
+				alias: "gemini-3-flash-preview:cloud",
+				canonical_model: "google/gemini-3-flash-preview",
+			}),
+			expect.objectContaining({
+				alias: "claude-sonnet-4-6",
+				canonical_model: "anthropic/claude-sonnet-4.6",
+			}),
+		]);
+	});
 });

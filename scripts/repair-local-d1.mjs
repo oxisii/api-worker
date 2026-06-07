@@ -78,22 +78,27 @@ const canonicalModelDefaults = [
 	{
 		canonicalModel: "openai/gpt-5",
 		importRegex:
-			"^(?:openai/)?gpt-5(?:\\.\\d+)?(?:-chat(?:-latest)?)?(?:-\\d{4}-\\d{2}-\\d{2})?$",
+			"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5(?:(?:-chat(?:-latest)?|-instant|-(?:high|low|medium)|-\\d{4}-\\d{2}-\\d{2}))?$",
 	},
 	{
 		canonicalModel: "openai/gpt-5-mini",
 		importRegex:
-			"^(?:openai/)?gpt-5(?:\\.\\d+)?-mini(?:-\\d{4}-\\d{2}-\\d{2})?$",
+			"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5-mini(?:-\\d{4}-\\d{2}-\\d{2})?$",
 	},
 	{
 		canonicalModel: "openai/gpt-5-nano",
 		importRegex:
-			"^(?:openai/)?gpt-5(?:\\.\\d+)?-nano(?:-\\d{4}-\\d{2}-\\d{2})?$",
+			"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5-nano(?:-\\d{4}-\\d{2}-\\d{2})?$",
 	},
 	{
 		canonicalModel: "openai/gpt-5-codex",
 		importRegex:
-			"^(?:openai/)?gpt-5(?:\\.\\d+)?-codex(?:-(?:mini|max|spark))?$",
+			"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5-codex(?:(?:-(?:high|low|medium|spark))?(?:-openai-compact)?)?$",
+	},
+	{
+		canonicalModel: "openai/gpt-5.3",
+		importRegex:
+			"^(?:(?:cc|claude)-)?(?:openai[:/])?gpt-5\\.3(?:(?:-chat(?:-latest)?|-instant|-(?:high|low|medium|xhigh|openai-compact)|\\((?:auto|high|low|medium|xhigh)\\)|-\\d{4}-\\d{2}-\\d{2}))*$",
 	},
 	{
 		canonicalModel: "openai/gpt-oss-120b",
@@ -188,11 +193,11 @@ const canonicalModelDefaults = [
 	},
 	{
 		canonicalModel: "google/gemini-3-pro-preview",
-		importRegex: "^(?:google/)?gemini-3-pro-preview(?:-[\\w.-]+)?$",
+		importRegex: "^(?:google/)?gemini-3-pro-preview(?:[-:][\\w.-]+)?$",
 	},
 	{
 		canonicalModel: "google/gemini-3-flash-preview",
-		importRegex: "^(?:google/)?gemini-3-flash-preview(?:-[\\w.-]+)?$",
+		importRegex: "^(?:google/)?gemini-3-flash-preview(?:[-:][\\w.-]+)?$",
 	},
 	{
 		canonicalModel: "google/gemini-3.1-pro",
@@ -200,7 +205,7 @@ const canonicalModelDefaults = [
 	},
 	{
 		canonicalModel: "google/gemini-3.1-pro-preview",
-		importRegex: "^(?:google/)?gemini-3\\.1-pro-preview(?:-[\\w.-]+)?$",
+		importRegex: "^(?:google/)?gemini-3\\.1-pro-preview(?:[-:][\\w.-]+)?$",
 	},
 	{
 		canonicalModel: "google/gemini-3.1-flash-lite",
@@ -379,8 +384,36 @@ const legacyCanonicalRegexResets = [
 
 const legacyDefaultRegexUpgrades = new Map([
 	[
+		"openai/gpt-5",
+		"^(?:openai/)?gpt-5(?:\\.\\d+)?(?:-chat(?:-latest)?)?(?:-\\d{4}-\\d{2}-\\d{2})?$",
+	],
+	[
+		"openai/gpt-5-mini",
+		"^(?:openai/)?gpt-5(?:\\.\\d+)?-mini(?:-\\d{4}-\\d{2}-\\d{2})?$",
+	],
+	[
+		"openai/gpt-5-nano",
+		"^(?:openai/)?gpt-5(?:\\.\\d+)?-nano(?:-\\d{4}-\\d{2}-\\d{2})?$",
+	],
+	[
+		"openai/gpt-5-codex",
+		"^(?:openai/)?gpt-5(?:\\.\\d+)?-codex(?:-(?:mini|max|spark))?$",
+	],
+	[
 		"google/gemini-2.5-pro",
 		"^(?:google/)?gemini-2\\.5-pro(?:-preview(?:-\\d{2}-\\d{2})?)?$",
+	],
+	[
+		"google/gemini-3-pro-preview",
+		"^(?:google/)?gemini-3-pro-preview(?:-[\\w.-]+)?$",
+	],
+	[
+		"google/gemini-3-flash-preview",
+		"^(?:google/)?gemini-3-flash-preview(?:-[\\w.-]+)?$",
+	],
+	[
+		"google/gemini-3.1-pro-preview",
+		"^(?:google/)?gemini-3\\.1-pro-preview(?:-[\\w.-]+)?$",
 	],
 	[
 		"google/gemini-2.5-flash",
