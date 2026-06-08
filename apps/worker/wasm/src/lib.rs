@@ -1277,6 +1277,18 @@ fn normalize_openai_input(raw: Option<&Value>) -> Vec<Value> {
     })]
 }
 
+fn normalize_openai_responses_body(body: &Map<String, Value>) -> Map<String, Value> {
+    let mut responses_body = body.clone();
+    if !responses_body.contains_key("input") {
+        let fallback_input = normalize_openai_messages(body.get("messages"));
+        if !fallback_input.is_empty() {
+            responses_body.insert("input".to_string(), Value::Array(fallback_input));
+            responses_body.remove("messages");
+        }
+    }
+    responses_body
+}
+
 fn normalize_chat_request_value(
     payload: &Value,
     provider: &str,
@@ -1292,7 +1304,8 @@ fn normalize_chat_request_value(
     };
     if provider == "openai" && endpoint == "responses" {
         let system_text = extract_system_text(body.get("instructions"));
-        let mut messages = normalize_openai_input(body.get("input"));
+        let responses_body = normalize_openai_responses_body(body);
+        let mut messages = normalize_openai_input(responses_body.get("input"));
         if !system_text.is_empty() {
             messages.insert(0, json!({"role":"system", "content": system_text}));
         }
@@ -1300,7 +1313,7 @@ fn normalize_chat_request_value(
             "model": model_value,
             "stream": is_stream,
             "messages": messages,
-            "rawResponsesBody": Value::Object(body.clone()),
+            "rawResponsesBody": Value::Object(responses_body),
             "tools": normalize_tools_from_openai(body.get("tools")),
             "toolChoice": body.get("tool_choice").cloned().unwrap_or(Value::Null),
             "temperature": number_or_null(body.get("temperature")),
