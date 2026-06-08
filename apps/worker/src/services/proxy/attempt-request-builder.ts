@@ -3,6 +3,7 @@ import {
 	mergeQuery,
 	resolveChannelBaseUrl,
 } from "./request-planning";
+import type { ModelReasoningConfig } from "../model-reasoning-config";
 import { getProviderAdapter } from "../providers";
 import type { EndpointType, ProviderType } from "../provider-transform";
 import type { RequestEntryFormat } from "../site-metadata";
@@ -56,6 +57,9 @@ export async function prepareAttemptRequest(options: {
 	loadStreamOptionsCapability: (
 		channelId: string,
 	) => Promise<"supported" | "unsupported" | "unknown">;
+	loadModelReasoningConfig?: (
+		candidates: Array<string | null | undefined>,
+	) => Promise<ModelReasoningConfig | null>;
 }): Promise<PreparedAttemptRequest | null> {
 	const metadata = options.attemptTarget.metadata;
 	const upstreamModel =
@@ -85,6 +89,14 @@ export async function prepareAttemptRequest(options: {
 	const upstreamProvider = buildPlan.upstreamProvider;
 
 	const providerAdapter = getProviderAdapter(upstreamProvider);
+	const reasoningConfig =
+		options.endpointType === "chat" || options.endpointType === "responses"
+			? await options.loadModelReasoningConfig?.([
+					options.attemptTarget.canonicalModel,
+					recordModel,
+					upstreamModel,
+				])
+			: null;
 	const headers = buildUpstreamHeaders(
 		new Headers(options.requestHeaders),
 		upstreamProvider,
@@ -115,6 +127,7 @@ export async function prepareAttemptRequest(options: {
 				: null,
 		isStream: options.isStream,
 		endpointOverrides: metadata.endpoint_overrides,
+		reasoningConfig,
 	});
 	if (!builtRequest) {
 		return null;

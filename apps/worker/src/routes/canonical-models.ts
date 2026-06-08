@@ -3,6 +3,11 @@ import type { AppEnv } from "../env";
 import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
 import { planCanonicalModelCleanup } from "../services/canonical-model-cleanup";
 import { syncCanonicalModelAliases } from "../services/canonical-model-registry";
+import {
+	parseModelReasoningConfig,
+	serializeModelReasoningConfig,
+	type ModelReasoningConfig,
+} from "../services/model-reasoning-config";
 import { jsonError } from "../utils/http";
 import { nowIso } from "../utils/time";
 
@@ -13,6 +18,7 @@ type CanonicalModelRow = {
 	display_name: string;
 	provider_hint: string | null;
 	import_regex: string | null;
+	reasoning_config_json?: string | null;
 	created_at: string;
 	updated_at: string;
 };
@@ -26,6 +32,7 @@ type CanonicalModelAliasRow = {
 type CanonicalModelItem = {
 	canonical_model: string;
 	import_regex: string | null;
+	reasoning_config: ModelReasoningConfig | null;
 	aliases: Array<{
 		alias: string;
 		provider_hint: string;
@@ -66,7 +73,7 @@ async function listCanonicalModelItems(
 		db
 			.prepare(
 				[
-					"SELECT canonical_model, display_name, provider_hint, import_regex, created_at, updated_at",
+					"SELECT canonical_model, display_name, provider_hint, import_regex, reasoning_config_json, created_at, updated_at",
 					"FROM model_registry ORDER BY updated_at DESC, canonical_model ASC",
 				].join(" "),
 			)
@@ -101,6 +108,7 @@ async function listCanonicalModelItems(
 		.map((row) => ({
 			canonical_model: row.canonical_model,
 			import_regex: row.import_regex ?? null,
+			reasoning_config: parseModelReasoningConfig(row.reasoning_config_json),
 			aliases: aliasMap.get(row.canonical_model) ?? [],
 			created_at: row.created_at,
 			updated_at: row.updated_at,
@@ -138,21 +146,30 @@ async function ensureCanonicalModelBaseRows(
 	db: AppEnv["Bindings"]["DB"],
 	canonicalModel: string,
 	importRegex: string | null,
+	reasoningConfigJson: string | null,
 ) {
 	const timestamp = nowIso();
 	await db
 		.prepare(
 			[
 				"INSERT INTO model_registry",
-				"(canonical_model, display_name, provider_hint, import_regex, created_at, updated_at)",
-				"VALUES (?, ?, NULL, ?, ?, ?)",
+				"(canonical_model, display_name, provider_hint, import_regex, reasoning_config_json, created_at, updated_at)",
+				"VALUES (?, ?, NULL, ?, ?, ?, ?)",
 				"ON CONFLICT(canonical_model) DO UPDATE SET",
 				"display_name = excluded.display_name,",
 				"import_regex = excluded.import_regex,",
+				"reasoning_config_json = excluded.reasoning_config_json,",
 				"updated_at = excluded.updated_at",
 			].join(" "),
 		)
-		.bind(canonicalModel, canonicalModel, importRegex, timestamp, timestamp)
+		.bind(
+			canonicalModel,
+			canonicalModel,
+			importRegex,
+			reasoningConfigJson,
+			timestamp,
+			timestamp,
+		)
 		.run();
 	await db
 		.prepare(
@@ -174,6 +191,7 @@ async function updateCanonicalModelReferences(
 	previousCanonicalModel: string,
 	nextCanonicalModel: string,
 	importRegex: string | null,
+	reasoningConfigJson: string | null,
 ) {
 	const timestamp = nowIso();
 	const tables = [
@@ -194,7 +212,7 @@ async function updateCanonicalModelReferences(
 		.prepare(
 			[
 				"UPDATE model_registry",
-				"SET canonical_model = ?, display_name = ?, import_regex = ?, updated_at = ?",
+				"SET canonical_model = ?, display_name = ?, import_regex = ?, reasoning_config_json = ?, updated_at = ?",
 				"WHERE canonical_model = ?",
 			].join(" "),
 		)
@@ -202,6 +220,7 @@ async function updateCanonicalModelReferences(
 			nextCanonicalModel,
 			nextCanonicalModel,
 			importRegex,
+			reasoningConfigJson,
 			timestamp,
 			previousCanonicalModel,
 		)
@@ -323,7 +342,15 @@ canonicalModels.post("/", async (c) => {
 			"canonical_model_exists",
 		);
 	}
-	await ensureCanonicalModelBaseRows(c.env.DB, canonicalModel, importRegex);
+	const reasoningConfigJson = serializeModelReasoningConfig(
+		body?.reasoning_config,
+	);
+	await ensureCanonicalModelBaseRows(
+		c.env.DB,
+		canonicalModel,
+		importRegex,
+		reasoningConfigJson,
+	);
 	const aliases = parseAliases(body?.aliases, canonicalModel);
 	for (const alias of aliases) {
 		await c.env.DB.prepare(
@@ -359,7 +386,7 @@ canonicalModels.patch("/:canonicalModel", async (c) => {
 	}
 	const current = await c.env.DB.prepare(
 		[
-			"SELECT canonical_model, display_name, provider_hint, import_regex, created_at, updated_at",
+			"SELECT canonical_model, display_name, provider_hint, import_regex, reasoning_config_json, created_at, updated_at",
 			"FROM model_registry WHERE canonical_model = ?",
 		].join(" "),
 	)
@@ -384,6 +411,9 @@ canonicalModels.patch("/:canonicalModel", async (c) => {
 		}
 	}
 	const aliases = parseAliases(body.aliases, nextCanonicalModel);
+	const reasoningConfigJson = serializeModelReasoningConfig(
+		body.reasoning_config,
+	);
 	if (nextCanonicalModel !== previousCanonicalModel) {
 		const conflict = await c.env.DB.prepare(
 			"SELECT canonical_model FROM model_registry WHERE canonical_model = ?",
@@ -403,16 +433,23 @@ canonicalModels.patch("/:canonicalModel", async (c) => {
 			previousCanonicalModel,
 			nextCanonicalModel,
 			importRegex,
+			reasoningConfigJson,
 		);
 	} else {
 		await c.env.DB.prepare(
 			[
 				"UPDATE model_registry",
-				"SET display_name = ?, import_regex = ?, updated_at = ?",
+				"SET display_name = ?, import_regex = ?, reasoning_config_json = ?, updated_at = ?",
 				"WHERE canonical_model = ?",
 			].join(" "),
 		)
-			.bind(nextCanonicalModel, importRegex, nowIso(), previousCanonicalModel)
+			.bind(
+				nextCanonicalModel,
+				importRegex,
+				reasoningConfigJson,
+				nowIso(),
+				previousCanonicalModel,
+			)
 			.run();
 	}
 	await c.env.DB.prepare("DELETE FROM model_aliases WHERE canonical_model = ?")

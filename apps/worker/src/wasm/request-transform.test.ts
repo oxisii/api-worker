@@ -36,6 +36,7 @@ function buildChatRequest(
 	provider: string,
 	endpoint: string,
 	model: string,
+	endpointOverrides: Record<string, unknown> = {},
 ) {
 	return safeJsonParse<{
 		body?: Record<string, unknown>;
@@ -46,7 +47,7 @@ function buildChatRequest(
 			model,
 			endpoint,
 			false,
-			toJson({}),
+			toJson(endpointOverrides),
 		),
 		null,
 	);
@@ -249,6 +250,122 @@ describe("wasm request transform", () => {
 					?.thinkingConfig as Record<string, unknown>
 			)?.thinkingLevel,
 		).toBe("medium");
+	});
+
+	it("OpenAI reasoning effort 转 Gemini target 时按 level 方言写入", () => {
+		const normalized = normalizeChatRequest(
+			{
+				model: "gpt-5.5",
+				reasoning: { effort: "high" },
+				messages: [{ role: "user", content: "ping" }],
+			},
+			"openai",
+			"chat",
+			"gpt-5.5",
+		);
+
+		const request = buildChatRequest(
+			normalized,
+			"gemini",
+			"chat",
+			"gemini-ultra-latest",
+		);
+
+		expect(
+			(
+				(request?.body?.generationConfig as Record<string, unknown>)
+					?.thinkingConfig as Record<string, unknown>
+			)?.thinkingLevel,
+		).toBe("high");
+		expect(
+			(
+				(request?.body?.generationConfig as Record<string, unknown>)
+					?.thinkingConfig as Record<string, unknown>
+			)?.thinkingBudget,
+		).toBeUndefined();
+	});
+
+	it("OpenAI-compatible 模型默认不按模型名称硬编码降级", () => {
+		const normalized = normalizeChatRequest(
+			{
+				model: "claude-opus-4-8",
+				max_tokens: 16000,
+				thinking: { type: "adaptive" },
+				output_config: { effort: "max" },
+				messages: [{ role: "user", content: "ping" }],
+			},
+			"anthropic",
+			"chat",
+			"claude-opus-4-8",
+		);
+
+		const request = buildChatRequest(
+			normalized,
+			"openai",
+			"chat",
+			"qwen/qwen3-next-80b-a3b-thinking",
+		);
+
+		expect(request?.body?.reasoning_effort).toBe("xhigh");
+	});
+
+	it("统一模型 reasoning 配置会覆盖 OpenAI-compatible 默认等级", () => {
+		const normalized = normalizeChatRequest(
+			{
+				model: "claude-opus-4-8",
+				max_tokens: 16000,
+				thinking: { type: "adaptive" },
+				output_config: { effort: "max" },
+				messages: [{ role: "user", content: "ping" }],
+			},
+			"anthropic",
+			"chat",
+			"claude-opus-4-8",
+		);
+
+		const request = buildChatRequest(
+			normalized,
+			"openai",
+			"chat",
+			"qwen/qwen3-next-80b-a3b-thinking",
+			{
+				reasoning: {
+					mode: "manual",
+					dialect: "openai_effort",
+					max_effort: "medium",
+				},
+			},
+		);
+
+		expect(request?.body?.reasoning_effort).toBe("medium");
+	});
+
+	it("统一模型 reasoning 关闭时不会写入目标思考字段", () => {
+		const normalized = normalizeChatRequest(
+			{
+				model: "gpt-5.5",
+				reasoning: { effort: "high" },
+				messages: [{ role: "user", content: "ping" }],
+			},
+			"openai",
+			"chat",
+			"gpt-5.5",
+		);
+
+		const request = buildChatRequest(
+			normalized,
+			"anthropic",
+			"chat",
+			"claude-sonnet-4-6",
+			{
+				reasoning: {
+					mode: "off",
+				},
+			},
+		);
+
+		expect(request?.body?.thinking).toBeUndefined();
+		expect(request?.body?.output_config).toBeUndefined();
 	});
 
 	it("Gemini 同 provider 重建时保留原始 thinkingConfig", () => {

@@ -872,6 +872,121 @@ fn budget_tokens_from_effort(effort: &str) -> Option<f64> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReasoningWriteDialect {
+    OpenAiEffort,
+    AnthropicAdaptive,
+    GeminiThinkingLevel,
+    Budget,
+    Passthrough,
+}
+
+#[derive(Clone, Copy)]
+struct ReasoningWriteRule {
+    dialect: ReasoningWriteDialect,
+    max_effort: &'static str,
+}
+
+fn reasoning_write_rule_override(
+    endpoint_overrides: &Map<String, Value>,
+) -> Option<Option<ReasoningWriteRule>> {
+    let config = endpoint_overrides.get("reasoning")?.as_object()?;
+    let mode = config
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if mode == "off" || mode == "disabled" {
+        return Some(None);
+    }
+    if mode != "manual" {
+        return None;
+    }
+    let dialect = match config
+        .get("dialect")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "openai_effort" | "openai" | "openai_chat_effort" => ReasoningWriteDialect::OpenAiEffort,
+        "anthropic_adaptive" | "anthropic" => ReasoningWriteDialect::AnthropicAdaptive,
+        "gemini_level" | "gemini_thinking_level" | "gemini" => {
+            ReasoningWriteDialect::GeminiThinkingLevel
+        }
+        "budget" | "thinking_budget" | "gemini_budget" => ReasoningWriteDialect::Budget,
+        "passthrough" => ReasoningWriteDialect::Passthrough,
+        _ => return None,
+    };
+    let max_effort = config
+        .get("max_effort")
+        .or_else(|| config.get("maxEffort"))
+        .and_then(|v| v.as_str())
+        .and_then(canonical_effort)
+        .unwrap_or(match dialect {
+            ReasoningWriteDialect::AnthropicAdaptive => "max",
+            ReasoningWriteDialect::OpenAiEffort => "xhigh",
+            ReasoningWriteDialect::GeminiThinkingLevel | ReasoningWriteDialect::Budget => "high",
+            ReasoningWriteDialect::Passthrough => "max",
+        });
+    Some(Some(ReasoningWriteRule {
+        dialect,
+        max_effort,
+    }))
+}
+
+fn reasoning_write_rule(
+    provider: &str,
+    _model: &str,
+    endpoint: &str,
+    endpoint_overrides: &Map<String, Value>,
+) -> Option<ReasoningWriteRule> {
+    if let Some(rule) = reasoning_write_rule_override(endpoint_overrides) {
+        return rule;
+    }
+    match provider {
+        "openai" => Some(ReasoningWriteRule {
+            dialect: ReasoningWriteDialect::OpenAiEffort,
+            max_effort: "xhigh",
+        }),
+        "anthropic" => Some(ReasoningWriteRule {
+            dialect: ReasoningWriteDialect::AnthropicAdaptive,
+            max_effort: "max",
+        }),
+        "gemini" if endpoint == "chat" => Some(ReasoningWriteRule {
+            dialect: ReasoningWriteDialect::GeminiThinkingLevel,
+            max_effort: "high",
+        }),
+        _ => None,
+    }
+}
+
+fn effort_rank(effort: &str) -> Option<u8> {
+    match canonical_effort(effort)? {
+        "none" => Some(0),
+        "minimal" => Some(1),
+        "low" => Some(2),
+        "medium" => Some(3),
+        "high" => Some(4),
+        "xhigh" => Some(5),
+        "max" => Some(6),
+        _ => None,
+    }
+}
+
+fn clamp_effort_to_max(effort: &str, max_effort: &str) -> Option<&'static str> {
+    let canonical = canonical_effort(effort)?;
+    let max = canonical_effort(max_effort)?;
+    if effort_rank(canonical)? > effort_rank(max)? {
+        Some(max)
+    } else {
+        Some(canonical)
+    }
+}
+
 fn normalized_budget_tokens(value: Option<&Value>) -> Option<f64> {
     let budget = numeric_value(value)?;
     if budget.is_finite() {
@@ -1639,15 +1754,32 @@ fn openai_reasoning_effort(effort: &str) -> Option<&'static str> {
 fn insert_openai_chat_reasoning_field(
     body: &mut Map<String, Value>,
     normalized: &Map<String, Value>,
+    model: &str,
+    endpoint: &str,
+    endpoint_overrides: &Map<String, Value>,
 ) {
     let Some(reasoning) = normalized_reasoning_obj(normalized) else {
         return;
     };
+    let Some(rule) = reasoning_write_rule("openai", model, endpoint, endpoint_overrides) else {
+        return;
+    };
+    if rule.dialect != ReasoningWriteDialect::OpenAiEffort {
+        return;
+    }
     if let Some(raw_effort) = reasoning.get("openaiReasoningEffort") {
-        body.insert("reasoning_effort".to_string(), raw_effort.clone());
+        let next_effort = effort_value(Some(raw_effort))
+            .and_then(|effort| {
+                clamp_effort_to_max(&effort, rule.max_effort)
+                    .and_then(openai_reasoning_effort)
+                    .map(|mapped| Value::String(mapped.to_string()))
+            })
+            .unwrap_or_else(|| raw_effort.clone());
+        body.insert("reasoning_effort".to_string(), next_effort);
         return;
     }
     let Some(effort) = reasoning_effort(normalized)
+        .and_then(|v| clamp_effort_to_max(&v, rule.max_effort).map(|mapped| mapped.to_string()))
         .and_then(|v| openai_reasoning_effort(&v).map(|mapped| mapped.to_string()))
     else {
         return;
@@ -1658,6 +1790,9 @@ fn insert_openai_chat_reasoning_field(
 fn insert_openai_responses_reasoning_field(
     body: &mut Map<String, Value>,
     normalized: &Map<String, Value>,
+    model: &str,
+    endpoint: &str,
+    endpoint_overrides: &Map<String, Value>,
 ) {
     if body.contains_key("reasoning") {
         return;
@@ -1665,11 +1800,28 @@ fn insert_openai_responses_reasoning_field(
     let Some(reasoning) = normalized_reasoning_obj(normalized) else {
         return;
     };
+    let Some(rule) = reasoning_write_rule("openai", model, endpoint, endpoint_overrides) else {
+        return;
+    };
+    if rule.dialect != ReasoningWriteDialect::OpenAiEffort {
+        return;
+    }
     if let Some(raw_reasoning) = reasoning.get("openaiReasoning") {
-        body.insert("reasoning".to_string(), raw_reasoning.clone());
+        let next_reasoning = (|| {
+            let raw_obj = raw_reasoning.as_object()?;
+            let raw_effort = effort_value(raw_obj.get("effort"))?;
+            let effort = clamp_effort_to_max(&raw_effort, rule.max_effort)?;
+            let mapped = openai_reasoning_effort(effort)?;
+            let mut next = raw_obj.clone();
+            next.insert("effort".to_string(), Value::String(mapped.to_string()));
+            Some(Value::Object(next))
+        })()
+        .unwrap_or_else(|| raw_reasoning.clone());
+        body.insert("reasoning".to_string(), next_reasoning);
         return;
     }
     let Some(effort) = reasoning_effort(normalized)
+        .and_then(|v| clamp_effort_to_max(&v, rule.max_effort).map(|mapped| mapped.to_string()))
         .and_then(|v| openai_reasoning_effort(&v).map(|mapped| mapped.to_string()))
     else {
         return;
@@ -1677,10 +1829,22 @@ fn insert_openai_responses_reasoning_field(
     body.insert("reasoning".to_string(), json!({ "effort": effort }));
 }
 
-fn insert_anthropic_thinking_field(body: &mut Map<String, Value>, normalized: &Map<String, Value>) {
+fn insert_anthropic_thinking_field(
+    body: &mut Map<String, Value>,
+    normalized: &Map<String, Value>,
+    model: &str,
+    endpoint: &str,
+    endpoint_overrides: &Map<String, Value>,
+) {
     let Some(reasoning) = normalized_reasoning_obj(normalized) else {
         return;
     };
+    let Some(rule) = reasoning_write_rule("anthropic", model, endpoint, endpoint_overrides) else {
+        return;
+    };
+    if rule.dialect != ReasoningWriteDialect::AnthropicAdaptive {
+        return;
+    }
     if let Some(raw_thinking) = reasoning.get("anthropicThinking") {
         body.insert("thinking".to_string(), raw_thinking.clone());
         if let Some(raw_output_config) = reasoning.get("anthropicOutputConfig") {
@@ -1688,7 +1852,9 @@ fn insert_anthropic_thinking_field(body: &mut Map<String, Value>, normalized: &M
         }
         return;
     }
-    let Some(effort) = reasoning_effort(normalized) else {
+    let Some(effort) = reasoning_effort(normalized)
+        .and_then(|v| clamp_effort_to_max(&v, rule.max_effort).map(|mapped| mapped.to_string()))
+    else {
         return;
     };
     if effort == "none" {
@@ -1709,43 +1875,45 @@ fn insert_anthropic_thinking_field(body: &mut Map<String, Value>, normalized: &M
     );
 }
 
-fn is_gemini_3_model(model: &str) -> bool {
-    let normalized = model.to_ascii_lowercase();
-    normalized.contains("gemini-3") || normalized.contains("gemini/3")
-}
-
 fn insert_gemini_thinking_config(
     generation_config: &mut Map<String, Value>,
     normalized: &Map<String, Value>,
     model: &str,
+    endpoint: &str,
+    endpoint_overrides: &Map<String, Value>,
 ) {
     let Some(reasoning) = normalized_reasoning_obj(normalized) else {
         return;
     };
+    let Some(rule) = reasoning_write_rule("gemini", model, endpoint, endpoint_overrides) else {
+        return;
+    };
+    if rule.dialect == ReasoningWriteDialect::Passthrough {
+        return;
+    }
     if let Some(raw_config) = reasoning.get("geminiThinkingConfig") {
         generation_config.insert("thinkingConfig".to_string(), raw_config.clone());
         return;
     }
     let mut thinking_config = Map::new();
-    if is_gemini_3_model(model) {
-        if let Some(effort) = reasoning_effort(normalized) {
-            if effort == "none" {
-                thinking_config.insert(
-                    "thinkingLevel".to_string(),
-                    Value::String("none".to_string()),
-                );
-            } else {
-                thinking_config.insert("thinkingLevel".to_string(), Value::String(effort));
-            }
+    if rule.dialect == ReasoningWriteDialect::GeminiThinkingLevel {
+        if let Some(effort) = reasoning_effort(normalized)
+            .and_then(|v| clamp_effort_to_max(&v, rule.max_effort).map(|mapped| mapped.to_string()))
+        {
+            thinking_config.insert("thinkingLevel".to_string(), Value::String(effort));
         }
-    } else if let Some(budget_tokens) = reasoning
-        .get("budgetTokens")
-        .and_then(|v| numeric_value(Some(v)))
-        .or_else(|| {
-            reasoning_effort(normalized).and_then(|effort| budget_tokens_from_effort(&effort))
-        })
-    {
-        thinking_config.insert("thinkingBudget".to_string(), Value::from(budget_tokens));
+    } else if rule.dialect == ReasoningWriteDialect::Budget {
+        if let Some(budget_tokens) = reasoning
+            .get("budgetTokens")
+            .and_then(|v| numeric_value(Some(v)))
+            .or_else(|| {
+                reasoning_effort(normalized)
+                    .and_then(|effort| clamp_effort_to_max(&effort, rule.max_effort))
+                    .and_then(budget_tokens_from_effort)
+            })
+        {
+            thinking_config.insert("thinkingBudget".to_string(), Value::from(budget_tokens));
+        }
     }
     if let Some(include_thoughts) = reasoning.get("includeThoughts").and_then(|v| v.as_bool()) {
         thinking_config.insert("includeThoughts".to_string(), Value::Bool(include_thoughts));
@@ -1801,7 +1969,13 @@ fn build_upstream_chat_request_value(
         if !model.is_empty() {
             body.insert("model".to_string(), Value::String(model.to_string()));
         }
-        insert_openai_responses_reasoning_field(&mut body, normalized);
+        insert_openai_responses_reasoning_field(
+            &mut body,
+            normalized,
+            model,
+            endpoint,
+            &endpoint_overrides_obj,
+        );
         if is_stream {
             body.insert("stream".to_string(), Value::Bool(true));
         }
@@ -1942,7 +2116,13 @@ fn build_upstream_chat_request_value(
         if let Some(max_tokens) = numeric_value(normalized.get("maxTokens")) {
             body.insert("max_tokens".to_string(), Value::from(max_tokens));
         }
-        insert_openai_chat_reasoning_field(&mut body, normalized);
+        insert_openai_chat_reasoning_field(
+            &mut body,
+            normalized,
+            model,
+            endpoint,
+            &endpoint_overrides_obj,
+        );
         if let Some(response_format) = normalized.get("responseFormat") {
             if !response_format.is_null() {
                 body.insert("response_format".to_string(), response_format.clone());
@@ -2093,7 +2273,13 @@ fn build_upstream_chat_request_value(
         if let Some(top_p) = numeric_value(normalized.get("topP")) {
             body.insert("top_p".to_string(), Value::from(top_p));
         }
-        insert_anthropic_thinking_field(&mut body, normalized);
+        insert_anthropic_thinking_field(
+            &mut body,
+            normalized,
+            model,
+            endpoint,
+            &endpoint_overrides_obj,
+        );
         if is_stream {
             body.insert("stream".to_string(), Value::Bool(true));
         }
@@ -2227,7 +2413,13 @@ fn build_upstream_chat_request_value(
             Value::from(max_output_tokens),
         );
     }
-    insert_gemini_thinking_config(&mut generation_config, normalized, model);
+    insert_gemini_thinking_config(
+        &mut generation_config,
+        normalized,
+        model,
+        endpoint,
+        &endpoint_overrides_obj,
+    );
     if !generation_config.is_empty() {
         body.insert(
             "generationConfig".to_string(),

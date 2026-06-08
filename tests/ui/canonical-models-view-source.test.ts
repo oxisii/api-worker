@@ -34,4 +34,19 @@ describe("canonical models view source contracts", () => {
 		expect(canonicalModelsViewSource).toContain("清理残留模型");
 		expect(canonicalModelsViewSource).toContain("onCleanupResidualModels");
 	});
+
+	it("统一模型编辑器提供思考能力配置", () => {
+		expect(canonicalModelsViewSource).toContain("思考能力");
+		expect(canonicalModelsViewSource).toContain("reasoning_config");
+		expect(canonicalModelsViewSource).toContain("canonical-model-reasoning-mode");
+		expect(canonicalModelsViewSource).toContain(
+			"canonical-model-reasoning-dialect",
+		);
+		expect(canonicalModelsViewSource).toContain(
+			"canonical-model-reasoning-effort",
+		);
+		expect(canonicalModelsViewSource).toContain("openai_effort");
+		expect(canonicalModelsViewSource).toContain("anthropic_adaptive");
+		expect(canonicalModelsViewSource).toContain("gemini_level");
+	});
 });

@@ -249,7 +249,7 @@ export function toNumber(value: unknown): number | null {
 }
 
 export function resolveEndpointOverride(
-	override: EndpointOverrides[keyof EndpointOverrides],
+	override: string | null | undefined,
 	model: string | null,
 ): { absolute?: string; path?: string } | null {
 	if (!override) {

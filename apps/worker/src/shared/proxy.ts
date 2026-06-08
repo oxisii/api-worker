@@ -52,6 +52,7 @@ import {
 	listAliasesForCanonicalModel,
 	resolveCanonicalModel,
 } from "../../../worker/src/services/model-normalization";
+import { resolveModelReasoningConfig } from "../../../worker/src/services/model-reasoning-config";
 import {
 	buildProxyErrorCodeSet,
 	resolveProxyErrorDecision,
@@ -483,6 +484,42 @@ proxy.all("/*", tokenAuth, async (c) => {
 	);
 	const canonicalModel = requestModelResolution.canonicalModel;
 	const downstreamModel = canonicalModel ?? requestModelRaw;
+	const reasoningConfigCache = new Map<
+		string,
+		Awaited<ReturnType<typeof resolveModelReasoningConfig>>
+	>();
+	const loadModelReasoningConfig = async (
+		candidates: Array<string | null | undefined>,
+	) => {
+		if (!db) {
+			return null;
+		}
+		const allCandidates = [
+			...candidates,
+			canonicalModel,
+			downstreamModel,
+			requestModelRaw,
+			rawRequestModel,
+			parsedDownstreamModel,
+		];
+		const cacheKey = allCandidates
+			.map((item) =>
+				String(item ?? "")
+					.trim()
+					.toLowerCase(),
+			)
+			.filter(Boolean)
+			.join("\n");
+		if (!cacheKey) {
+			return null;
+		}
+		if (reasoningConfigCache.has(cacheKey)) {
+			return reasoningConfigCache.get(cacheKey) ?? null;
+		}
+		const config = await resolveModelReasoningConfig(db, allCandidates);
+		reasoningConfigCache.set(cacheKey, config);
+		return config;
+	};
 	const canonicalAliases =
 		db && canonicalModel
 			? await listAliasesForCanonicalModel(
@@ -1553,6 +1590,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 		ensureNormalizedEmbedding,
 		ensureNormalizedImage,
 		loadStreamOptionsCapability,
+		loadModelReasoningConfig,
 		attemptBindingPolicy,
 		attemptBindingState,
 		dispatchRetryConfig,

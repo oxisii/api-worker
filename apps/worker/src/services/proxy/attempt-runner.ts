@@ -25,6 +25,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 		ensureNormalizedEmbedding,
 		ensureNormalizedImage,
 		loadStreamOptionsCapability,
+		loadModelReasoningConfig,
 		attemptBindingPolicy,
 		attemptBindingState,
 		dispatchRetryConfig,
@@ -182,6 +183,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				ensureNormalizedEmbedding,
 				ensureNormalizedImage,
 				loadStreamOptionsCapability,
+				loadModelReasoningConfig,
 			});
 			if (!preparedAttempt) {
 				continue;
@@ -885,6 +887,7 @@ export async function runProxyAttempts(ctx: any): Promise<any> {
 				ensureNormalizedEmbedding,
 				ensureNormalizedImage,
 				loadStreamOptionsCapability,
+				loadModelReasoningConfig,
 			});
 			if (!preparedAttempt) {
 				continue;

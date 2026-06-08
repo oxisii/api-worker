@@ -9,6 +9,7 @@ import type {
 	NormalizedImageRequest,
 	UpstreamRequest,
 } from "../provider-transform";
+import type { ModelReasoningConfig } from "../model-reasoning-config";
 import type { EndpointOverrides } from "../site-metadata";
 import { rewriteModelInRawJsonRequest } from "./request-body";
 import type { AttemptRequestBuildPlan } from "./request-build-plan";
@@ -33,6 +34,7 @@ export function executeAttemptRequestBuildPlan(options: {
 	normalizedImageRequest?: NormalizedImageRequest | null;
 	isStream: boolean;
 	endpointOverrides: EndpointOverrides;
+	reasoningConfig?: ModelReasoningConfig | null;
 }): ExecutedAttemptRequestBuild | null {
 	if (options.plan.strategy === "reuse_custom_entry_body") {
 		return {
@@ -81,7 +83,9 @@ export function executeAttemptRequestBuildPlan(options: {
 			options.upstreamModel,
 			options.plan.requestEndpointType,
 			options.isStream,
-			options.endpointOverrides,
+			options.reasoningConfig
+				? { ...options.endpointOverrides, reasoning: options.reasoningConfig }
+				: options.endpointOverrides,
 		);
 	}
 	if (options.plan.strategy === "rebuild_embedding") {

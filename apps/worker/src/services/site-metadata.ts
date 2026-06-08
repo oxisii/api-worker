@@ -5,6 +5,7 @@ import {
 } from "../../../shared-core/src";
 import { safeJsonParse } from "../utils/json";
 import { normalizeBaseUrl } from "../utils/url";
+import type { ModelReasoningConfig } from "./model-reasoning-config";
 export type { RequestEntryFormat, SiteType } from "../../../shared-core/src";
 import type { SiteType } from "../../../shared-core/src";
 
@@ -12,6 +13,7 @@ export type EndpointOverrides = {
 	chat_url?: string | null;
 	image_url?: string | null;
 	embedding_url?: string | null;
+	reasoning?: ModelReasoningConfig | null;
 };
 
 export type RequestEntry = {

@@ -531,9 +531,36 @@ export type CanonicalModelAliasItem = {
 	canonical_model: string;
 };
 
+export type ModelReasoningDialect =
+	| "openai_effort"
+	| "anthropic_adaptive"
+	| "gemini_level"
+	| "budget"
+	| "passthrough";
+
+export type ModelReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
+
+export type ModelReasoningConfig =
+	| {
+			mode: "off";
+	  }
+	| {
+			mode: "manual";
+			dialect: ModelReasoningDialect;
+			max_effort: ModelReasoningEffort | null;
+	  };
+
 export type CanonicalModelItem = {
 	canonical_model: string;
 	import_regex: string | null;
+	reasoning_config?: ModelReasoningConfig | null;
 	aliases: CanonicalModelAliasItem[];
 	created_at: string;
 	updated_at: string;
@@ -542,6 +569,7 @@ export type CanonicalModelItem = {
 export type CanonicalModelInput = {
 	canonical_model: string;
 	import_regex?: string | null;
+	reasoning_config?: ModelReasoningConfig | null;
 	aliases?: string;
 };
 

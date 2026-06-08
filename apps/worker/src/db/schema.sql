@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS model_registry (
   display_name TEXT NOT NULL,
   provider_hint TEXT,
   import_regex TEXT,
+  reasoning_config_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

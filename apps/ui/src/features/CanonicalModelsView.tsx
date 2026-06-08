@@ -31,6 +31,8 @@ import type {
 	CanonicalModelItem,
 	CanonicalModelSyncConflict,
 	CanonicalModelSyncResult,
+	ModelReasoningDialect,
+	ModelReasoningEffort,
 } from "../core/types";
 import { formatDateTime } from "../core/utils";
 
@@ -54,6 +56,9 @@ type FormState = {
 	canonical_model: string;
 	import_regex: string;
 	aliases: string;
+	reasoning_mode: "" | "off" | "manual";
+	reasoning_dialect: ModelReasoningDialect;
+	reasoning_max_effort: "" | ModelReasoningEffort;
 };
 
 type MergeState = {
@@ -78,16 +83,92 @@ const initialForm: FormState = {
 	canonical_model: "",
 	import_regex: "",
 	aliases: "",
+	reasoning_mode: "",
+	reasoning_dialect: "openai_effort",
+	reasoning_max_effort: "high",
 };
 
 const buildForm = (item: CanonicalModelItem): FormState => ({
 	canonical_model: item.canonical_model,
 	import_regex: item.import_regex ?? "",
 	aliases: item.aliases.map((alias) => alias.alias).join("\n"),
+	reasoning_mode: item.reasoning_config?.mode ?? "",
+	reasoning_dialect:
+		item.reasoning_config?.mode === "manual"
+			? item.reasoning_config.dialect
+			: "openai_effort",
+	reasoning_max_effort:
+		item.reasoning_config?.mode === "manual"
+			? (item.reasoning_config.max_effort ?? "")
+			: "high",
 });
 
 const formatAliasPreview = (item: CanonicalModelItem) =>
 	item.aliases.map((alias) => alias.alias).join(" · ");
+
+const reasoningModeOptions = [
+	{ value: "", label: "自动", description: "按目标服务商默认规则转换" },
+	{ value: "manual", label: "手动", description: "固定目标写入方式和最高等级" },
+	{ value: "off", label: "关闭", description: "不向目标请求写入思考字段" },
+];
+
+const reasoningDialectOptions: Array<{
+	value: ModelReasoningDialect;
+	label: string;
+	description: string;
+}> = [
+	{
+		value: "openai_effort",
+		label: "OpenAI effort",
+		description: "写 reasoning_effort 或 reasoning.effort",
+	},
+	{
+		value: "anthropic_adaptive",
+		label: "Anthropic adaptive",
+		description: "写 thinking + output_config.effort",
+	},
+	{
+		value: "gemini_level",
+		label: "Gemini level",
+		description: "写 generationConfig.thinkingConfig.thinkingLevel",
+	},
+	{
+		value: "budget",
+		label: "Budget",
+		description: "写 thinkingBudget",
+	},
+	{
+		value: "passthrough",
+		label: "Passthrough",
+		description: "只保留原始思考配置",
+	},
+];
+
+const reasoningEffortOptions: Array<{
+	value: "" | ModelReasoningEffort;
+	label: string;
+	description?: string;
+}> = [
+	{ value: "", label: "默认", description: "使用方言默认上限" },
+	{ value: "none", label: "none" },
+	{ value: "minimal", label: "minimal" },
+	{ value: "low", label: "low" },
+	{ value: "medium", label: "medium" },
+	{ value: "high", label: "high" },
+	{ value: "xhigh", label: "xhigh" },
+	{ value: "max", label: "max" },
+];
+
+const formatReasoningConfig = (item: CanonicalModelItem): string => {
+	const config = item.reasoning_config;
+	if (!config) {
+		return "自动";
+	}
+	if (config.mode === "off") {
+		return "关闭";
+	}
+	return `${config.dialect} ${config.max_effort ?? "默认"}`;
+};
 
 const formatSources = (sources: string[]) => sources.join(" / ");
 
@@ -278,6 +359,7 @@ export const CanonicalModelsView = ({
 		await onUpdate(targetItem.canonical_model, {
 			canonical_model: targetItem.canonical_model,
 			import_regex: targetItem.import_regex,
+			reasoning_config: targetItem.reasoning_config ?? null,
 			aliases: Array.from(aliases).join("\n"),
 		});
 	};
@@ -293,6 +375,16 @@ export const CanonicalModelsView = ({
 			canonical_model: canonicalModel,
 			import_regex: form.import_regex.trim() || null,
 			aliases: form.aliases,
+			reasoning_config:
+				form.reasoning_mode === "off"
+					? { mode: "off" }
+					: form.reasoning_mode === "manual"
+						? {
+								mode: "manual",
+								dialect: form.reasoning_dialect,
+								max_effort: form.reasoning_max_effort || null,
+							}
+						: null,
 		};
 		if (editingItem) {
 			await onUpdate(editingItem.canonical_model, payload);
@@ -674,6 +766,7 @@ export const CanonicalModelsView = ({
 								<TableRow>
 									<TableHead>统一名</TableHead>
 									<TableHead>导入正则</TableHead>
+									<TableHead>思考能力</TableHead>
 									<TableHead>精确别名</TableHead>
 									<TableHead>更新时间</TableHead>
 									<TableHead>操作</TableHead>
@@ -684,7 +777,7 @@ export const CanonicalModelsView = ({
 									<TableRow>
 										<TableCell
 											class="px-3 py-8 text-center text-sm text-[color:var(--app-ink-muted)]"
-											colSpan={5}
+											colSpan={6}
 										>
 											暂无统一模型，点击新增统一模型开始维护。
 										</TableCell>
@@ -701,6 +794,21 @@ export const CanonicalModelsView = ({
 												<div class="max-w-[260px] break-words text-[11px] text-[color:var(--app-ink-muted)]">
 													{item.import_regex || "-"}
 												</div>
+											</TableCell>
+											<TableCell>
+												<Chip
+													variant={
+														item.reasoning_config?.mode === "off"
+															? "warning"
+															: item.reasoning_config?.mode === "manual"
+																? "accent"
+																: "default"
+													}
+													class="max-w-[220px] truncate text-[10px]"
+													title={formatReasoningConfig(item)}
+												>
+													{formatReasoningConfig(item)}
+												</Chip>
 											</TableCell>
 											<TableCell>
 												<div class="flex max-w-[420px] flex-wrap gap-1.5">
@@ -805,6 +913,69 @@ export const CanonicalModelsView = ({
 									})
 								}
 							/>
+						</div>
+						<div class="app-surface space-y-3 p-3">
+							<div>
+								<p class="text-xs font-semibold text-[color:var(--app-ink-muted)]">
+									思考能力
+								</p>
+								<p class="mt-1 text-xs text-[color:var(--app-ink-muted)]">
+									配置这个统一模型在跨服务商转换时如何写入目标请求的思考字段。
+								</p>
+							</div>
+							<div class="grid gap-3 md:grid-cols-3">
+								<div class="space-y-1.5" id="canonical-model-reasoning-mode">
+									<p class="block text-xs font-semibold text-[color:var(--app-ink-muted)]">
+										模式
+									</p>
+									<SingleSelect
+										class="w-full"
+										buttonClass="min-h-10 w-full justify-between rounded-2xl border-white/70 bg-white/75 px-3 text-left text-sm"
+										value={form.reasoning_mode}
+										options={reasoningModeOptions}
+										onChange={(next) =>
+											updateForm({
+												reasoning_mode: next as FormState["reasoning_mode"],
+											})
+										}
+									/>
+								</div>
+								<div class="space-y-1.5" id="canonical-model-reasoning-dialect">
+									<p class="block text-xs font-semibold text-[color:var(--app-ink-muted)]">
+										写入方式
+									</p>
+									<SingleSelect
+										class="w-full"
+										buttonClass="min-h-10 w-full justify-between rounded-2xl border-white/70 bg-white/75 px-3 text-left text-sm"
+										value={form.reasoning_dialect}
+										options={reasoningDialectOptions}
+										disabled={form.reasoning_mode !== "manual"}
+										onChange={(next) =>
+											updateForm({
+												reasoning_dialect: next as ModelReasoningDialect,
+											})
+										}
+									/>
+								</div>
+								<div class="space-y-1.5" id="canonical-model-reasoning-effort">
+									<p class="block text-xs font-semibold text-[color:var(--app-ink-muted)]">
+										最高等级
+									</p>
+									<SingleSelect
+										class="w-full"
+										buttonClass="min-h-10 w-full justify-between rounded-2xl border-white/70 bg-white/75 px-3 text-left text-sm"
+										value={form.reasoning_max_effort}
+										options={reasoningEffortOptions}
+										disabled={form.reasoning_mode !== "manual"}
+										onChange={(next) =>
+											updateForm({
+												reasoning_max_effort:
+													next as FormState["reasoning_max_effort"],
+											})
+										}
+									/>
+								</div>
+							</div>
 						</div>
 						<div class="space-y-1.5">
 							<label
