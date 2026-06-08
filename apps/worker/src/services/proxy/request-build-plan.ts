@@ -63,19 +63,24 @@ export function resolveAttemptRequestBuildPlan(options: {
 	const sameProvider = upstreamProvider === options.downstreamProvider;
 	const isChatLike =
 		options.endpointType === "chat" || options.endpointType === "responses";
-	const shouldRebuildChatRequest =
-		(options.requestEntryFormatOverride !== null &&
-			options.requestEntryFormatOverride !== undefined &&
-			isChatLike) ||
-		(!sameProvider && isChatLike);
 
-	if (customEntry && !shouldRebuildChatRequest) {
+	if (customEntry && !isChatLike) {
 		return {
 			upstreamProvider,
 			requestEndpointType,
 			strategy: "reuse_custom_entry_body",
 			customEntry,
 			requestEntryFormatToPersist: customEntry.requestEntryFormatToPersist,
+		};
+	}
+
+	if (isChatLike) {
+		return {
+			upstreamProvider,
+			requestEndpointType,
+			strategy: "rebuild_chat",
+			customEntry,
+			requestEntryFormatToPersist: customEntry?.requestEntryFormatToPersist,
 		};
 	}
 

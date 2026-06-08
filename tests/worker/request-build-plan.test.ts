@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAttemptRequestBuildPlan } from "../../apps/worker/src/services/proxy/request-build-plan";
 
 describe("attempt request build plan", () => {
-	it("同 provider 的自定义入口保留原始 body，只改目标入口", () => {
+	it("同 provider 的自定义 chat 入口也会标准化重建 body", () => {
 		const plan = resolveAttemptRequestBuildPlan({
 			attemptUpstreamProvider: "openai",
 			siteType: "openai",
@@ -18,11 +18,31 @@ describe("attempt request build plan", () => {
 		expect(plan).toMatchObject({
 			upstreamProvider: "openai",
 			requestEndpointType: "chat",
-			strategy: "reuse_custom_entry_body",
+			strategy: "rebuild_chat",
 			customEntry: {
 				path: "/codex",
 				upstreamProvider: "openai",
 			},
+		});
+	});
+
+	it("同 provider 的 responses 自动尝试会标准化重建 body", () => {
+		const plan = resolveAttemptRequestBuildPlan({
+			attemptUpstreamProvider: "openai",
+			siteType: "openai",
+			requestEntry: {
+				path: null,
+				format: null,
+			},
+			downstreamProvider: "openai",
+			endpointType: "responses",
+			requestEntryFormatOverride: "openai_responses",
+		});
+
+		expect(plan).toMatchObject({
+			upstreamProvider: "openai",
+			requestEndpointType: "responses",
+			strategy: "rebuild_chat",
 		});
 	});
 
