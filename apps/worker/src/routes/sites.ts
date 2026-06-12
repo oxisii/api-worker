@@ -494,7 +494,6 @@ const buildSiteRecord = (
 		request_entry_path: metadata.request_entry.path,
 		request_entry_format: metadata.request_entry.format,
 		manual_include_models: metadata.manual_include_models,
-		manual_pending_models: metadata.manual_pending_models,
 		manual_exclude_models: metadata.manual_exclude_models,
 		cooling_models: coolingModels,
 		cooling_model_count: coolingModels.length,
@@ -1053,7 +1052,7 @@ sites.post("/refresh-active", async (c) => {
 		};
 		const completedReport = buildCompletedRefreshTaskReport(startedAt, report);
 		await saveSiteTaskReport(c.env.DB, completedReport);
-		if (result.summary.success > 0) {
+		if (result.items.some((item) => item.models_changed)) {
 			await invalidateSelectionHotCache(c.env.KV_HOT);
 		}
 		return c.json(report);
@@ -1129,7 +1128,7 @@ sites.post("/:id/refresh", async (c) => {
 	if (!result) {
 		return jsonError(c, 404, "site_not_found", "site_not_found");
 	}
-	if (result.status === "success") {
+	if (result.models_changed) {
 		await invalidateSelectionHotCache(c.env.KV_HOT);
 	}
 	return c.json(result);

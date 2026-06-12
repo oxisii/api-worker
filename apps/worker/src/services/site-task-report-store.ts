@@ -22,6 +22,7 @@ export type SiteChannelRefreshItem = {
 		code: string;
 		reason: string;
 	}>;
+	models_changed?: boolean;
 	models: string[];
 };
 

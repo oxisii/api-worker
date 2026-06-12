@@ -3,18 +3,14 @@ import { safeJsonParse } from "../utils/json";
 import type { ChannelRow } from "./channel-types";
 import { extractModelIds, type ModelEntry } from "./channel-models";
 import { listVerifiedModelsByChannel } from "./channel-model-capabilities";
-import {
-	deriveCanonicalModel,
-	toCanonicalModelSet,
-} from "./model-normalization";
+import { deriveCanonicalModel } from "./model-normalization";
 
 type ManualModelConfig = {
 	include: string[];
-	pending: string[];
 	exclude: string[];
 };
 
-export type ManualModelStatus = "enabled" | "pending" | "excluded" | "auto";
+export type ManualModelStatus = "manual" | "excluded" | "auto";
 
 type EffectiveModelInput = {
 	channel: Pick<ChannelRow, "models_json" | "metadata_json">;
@@ -61,7 +57,6 @@ export function parseManualModelConfig(
 	const metadata = safeJsonParse<Record<string, unknown>>(metadataJson, {});
 	return {
 		include: normalizeModelList(metadata[MANUAL_INCLUDE_KEY]),
-		pending: normalizeModelList(metadata[MANUAL_PENDING_KEY]),
 		exclude: normalizeModelList(metadata[MANUAL_EXCLUDE_KEY]),
 	};
 }
@@ -110,22 +105,18 @@ export function updateManualModelStatus(
 	const manual = parseManualModelConfig(metadataJson);
 	const next = {
 		include: removeModel(manual.include, canonicalModel),
-		pending: removeModel(manual.pending, canonicalModel),
 		exclude: removeModel(manual.exclude, canonicalModel),
 	};
 
-	if (update.status === "enabled") {
+	if (update.status === "manual") {
 		next.include = appendModel(next.include, canonicalModel);
-	}
-	if (update.status === "pending") {
-		next.pending = appendModel(next.pending, canonicalModel);
 	}
 	if (update.status === "excluded") {
 		next.exclude = appendModel(next.exclude, canonicalModel);
 	}
 
 	setModelList(metadata, MANUAL_INCLUDE_KEY, next.include);
-	setModelList(metadata, MANUAL_PENDING_KEY, next.pending);
+	delete metadata[MANUAL_PENDING_KEY];
 	setModelList(metadata, MANUAL_EXCLUDE_KEY, next.exclude);
 	return stringifyMetadata(metadata);
 }
@@ -142,55 +133,28 @@ export function resolveChannelModelStatus(
 	if (manual.exclude.includes(normalized)) {
 		return "excluded";
 	}
-	if (manual.pending.includes(normalized)) {
-		return "pending";
-	}
 	if (manual.include.includes(normalized)) {
-		return "enabled";
+		return "manual";
 	}
 	return "auto";
 }
 
 export function stageNewlyDiscoveredModels(
 	metadataJson: string | null | undefined,
-	previousModels: string[],
+	_previousModels: string[],
 	discoveredModels: string[],
 ): string | null {
-	let metadata = metadataJson ?? null;
-	const previousModelList = normalizeModelList(previousModels);
-	const previousSet = new Set(previousModelList);
 	const discoveredModelList = normalizeModelList(discoveredModels);
 	const discoveredSet = new Set(discoveredModelList);
 	const initialManual = parseManualModelConfig(metadataJson);
-	const shouldPromoteFirstDiscovery =
-		previousModelList.length === 0 &&
-		initialManual.include.length === 0 &&
-		initialManual.pending.length === 0 &&
-		initialManual.exclude.length === 0;
-	const nextInclude = initialManual.include.filter((model) =>
-		discoveredSet.has(model),
+	const metadata = safeJsonParse<Record<string, unknown>>(metadataJson, {});
+	const nextInclude = initialManual.include.filter(
+		(model) => !discoveredSet.has(model),
 	);
-	if (nextInclude.length !== initialManual.include.length) {
-		const metadataObject = safeJsonParse<Record<string, unknown>>(metadata, {});
-		setModelList(metadataObject, MANUAL_INCLUDE_KEY, nextInclude);
-		setModelList(metadataObject, MANUAL_PENDING_KEY, initialManual.pending);
-		setModelList(metadataObject, MANUAL_EXCLUDE_KEY, initialManual.exclude);
-		metadata = stringifyMetadata(metadataObject);
-	}
-	for (const model of discoveredModelList) {
-		if (previousSet.has(model)) {
-			continue;
-		}
-		const status = resolveChannelModelStatus(metadata, model);
-		if (status !== "auto") {
-			continue;
-		}
-		metadata = updateManualModelStatus(metadata, {
-			model,
-			status: shouldPromoteFirstDiscovery ? "enabled" : "pending",
-		});
-	}
-	return metadata;
+	setModelList(metadata, MANUAL_INCLUDE_KEY, nextInclude);
+	delete metadata[MANUAL_PENDING_KEY];
+	setModelList(metadata, MANUAL_EXCLUDE_KEY, initialManual.exclude);
+	return stringifyMetadata(metadata);
 }
 
 export function resolveEffectiveModelIds({
@@ -198,7 +162,7 @@ export function resolveEffectiveModelIds({
 	verifiedModels,
 }: EffectiveModelInput): string[] {
 	const manual = parseManualModelConfig(channel.metadata_json);
-	const blocked = new Set([...manual.pending, ...manual.exclude]);
+	const blocked = new Set(manual.exclude);
 	const output: string[] = [];
 	const seen = new Set<string>();
 	const addIfAllowed = (model: unknown) => {
@@ -215,19 +179,11 @@ export function resolveEffectiveModelIds({
 	for (const model of verified) {
 		addIfAllowed(model);
 	}
-	for (const model of manual.include) {
+	for (const model of extractModelIds(channel)) {
 		addIfAllowed(model);
 	}
-
-	if (
-		verified.length === 0 &&
-		manual.include.length === 0 &&
-		manual.pending.length === 0 &&
-		manual.exclude.length === 0
-	) {
-		for (const model of extractModelIds(channel)) {
-			addIfAllowed(model);
-		}
+	for (const model of manual.include) {
+		addIfAllowed(model);
 	}
 
 	return output;

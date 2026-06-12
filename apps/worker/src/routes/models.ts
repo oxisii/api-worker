@@ -1,25 +1,10 @@
 import { Hono } from "hono";
-import type { AppEnv, Bindings } from "../env";
+import type { AppEnv } from "../env";
 import {
-	parseManualModelConfig,
-	resolveChannelModelStatus,
 	updateManualModelStatus,
 	type ManualModelStatus,
 } from "../services/channel-effective-models";
-import {
-	deleteChannelModelCapability,
-	listVerifiedModelsByChannel,
-} from "../services/channel-model-capabilities";
-import {
-	extractModels,
-	extractModelIds,
-	removeModelFromModelsJson,
-} from "../services/channel-models";
-import {
-	getChannelById,
-	listChannels,
-	updateChannel,
-} from "../services/channel-repo";
+import { getChannelById, updateChannel } from "../services/channel-repo";
 import {
 	buildModelsIndexKey,
 	invalidateSelectionHotCache,
@@ -27,143 +12,14 @@ import {
 	writeHotJson,
 } from "../services/hot-kv";
 import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import {
+	buildModelsPayload,
+	type ModelsPayload,
+} from "../services/models-index";
 import { jsonError } from "../utils/http";
 import { nowIso } from "../utils/time";
 
 const models = new Hono<AppEnv>();
-
-type ModelChannelStatus = "enabled" | "pending" | "excluded";
-
-type ModelsPayload = {
-	models: Array<{
-		id: string;
-		raw_ids?: string[];
-		counts: {
-			enabled: number;
-			pending: number;
-			excluded: number;
-		};
-		channels: Array<{
-			id: string;
-			name: string;
-			status: ModelChannelStatus;
-		}>;
-	}>;
-};
-
-function normalizeManagedStatus(
-	status: ManualModelStatus,
-	isVerified: boolean,
-): ModelChannelStatus | null {
-	if (status === "excluded") {
-		return "excluded";
-	}
-	if (status === "pending") {
-		return "pending";
-	}
-	if (status === "enabled" || isVerified) {
-		return "enabled";
-	}
-	return null;
-}
-
-function addModelChannel(
-	map: Map<string, ModelsPayload["models"][number]>,
-	model: string,
-	rawIds: string[] | undefined,
-	channel: { id: string; name: string },
-	status: ModelChannelStatus,
-): void {
-	const existing = map.get(model) ?? {
-		id: model,
-		raw_ids: [],
-		counts: {
-			enabled: 0,
-			pending: 0,
-			excluded: 0,
-		},
-		channels: [],
-	};
-	if (
-		existing.channels.some(
-			(item) => item.id === channel.id && item.status === status,
-		)
-	) {
-		return;
-	}
-	existing.channels.push({
-		id: channel.id,
-		name: channel.name,
-		status,
-	});
-	for (const rawId of rawIds ?? []) {
-		if (!existing.raw_ids?.includes(rawId)) {
-			existing.raw_ids?.push(rawId);
-		}
-	}
-	existing.counts[status] += 1;
-	map.set(model, existing);
-}
-
-async function buildModelsPayload(db: Bindings["DB"]): Promise<ModelsPayload> {
-	const channels = await listChannels(db, {
-		orderBy: "created_at",
-		order: "DESC",
-	});
-	const activeChannelIds = channels
-		.filter((channel) => channel.status === "active")
-		.map((channel) => channel.id);
-	const verified = await listVerifiedModelsByChannel(db, activeChannelIds);
-	const map = new Map<string, ModelsPayload["models"][number]>();
-
-	for (const channel of channels) {
-		const manual = parseManualModelConfig(channel.metadata_json);
-		const candidates = new Set<string>([
-			...extractModelIds(channel),
-			...(verified.get(channel.id) ?? new Set<string>()),
-			...manual.include,
-			...manual.pending,
-			...manual.exclude,
-		]);
-		const rawIdsByCanonical = new Map<string, string[]>();
-		for (const entry of extractModels(channel)) {
-			rawIdsByCanonical.set(entry.id, entry.rawIds ?? [entry.id]);
-		}
-		for (const model of candidates) {
-			const status = normalizeManagedStatus(
-				resolveChannelModelStatus(channel.metadata_json, model),
-				verified.get(channel.id)?.has(model) ?? false,
-			);
-			if (!status) {
-				continue;
-			}
-			addModelChannel(
-				map,
-				model,
-				rawIdsByCanonical.get(model),
-				channel,
-				status,
-			);
-		}
-	}
-
-	const payload = {
-		models: Array.from(map.values()).sort((left, right) =>
-			left.id.localeCompare(right.id),
-		),
-	};
-	for (const model of payload.models) {
-		model.channels.sort((left, right) => {
-			const statusOrder = { enabled: 0, pending: 1, excluded: 2 };
-			const statusDelta = statusOrder[left.status] - statusOrder[right.status];
-			if (statusDelta !== 0) {
-				return statusDelta;
-			}
-			return left.name.localeCompare(right.name);
-		});
-	}
-	return payload;
-}
 
 /**
  * Returns aggregated models from all channels.
@@ -193,7 +49,7 @@ models.post("/status", async (c) => {
 	if (!channelId || !model || !status) {
 		return jsonError(c, 400, "missing_model_status", "missing_model_status");
 	}
-	if (!["enabled", "pending", "excluded", "auto"].includes(status)) {
+	if (!["manual", "excluded", "auto"].includes(status)) {
 		return jsonError(c, 400, "invalid_model_status", "invalid_model_status");
 	}
 	const channel = await getChannelById(c.env.DB, channelId);
@@ -204,13 +60,6 @@ models.post("/status", async (c) => {
 		model,
 		status,
 	});
-	const modelsJson =
-		status === "auto"
-			? removeModelFromModelsJson(channel.models_json, model)
-			: (channel.models_json ?? "[]");
-	if (status === "auto") {
-		await deleteChannelModelCapability(c.env.DB, channel.id, model);
-	}
 	await updateChannel(c.env.DB, channel.id, {
 		name: channel.name,
 		base_url: channel.base_url,
@@ -218,7 +67,7 @@ models.post("/status", async (c) => {
 		weight: Number(channel.weight ?? 1),
 		status: channel.status,
 		rate_limit: channel.rate_limit ?? 0,
-		models_json: modelsJson,
+		models_json: channel.models_json ?? "[]",
 		type: channel.type ?? 1,
 		group_name: channel.group_name ?? null,
 		priority: channel.priority ?? 0,

@@ -11,20 +11,20 @@ describe("channel model rows", () => {
 				{
 					id: "gpt-4.1",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "enabled" },
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
 						{ id: "channel-b", name: "渠道 B", status: "excluded" },
 					],
 				},
 				{
 					id: "claude-sonnet",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "pending" },
+						{ id: "channel-a", name: "渠道 A", status: "manual" },
 					],
 				},
 				{
 					id: "gemini-pro",
 					channels: [
-						{ id: "channel-b", name: "渠道 B", status: "enabled" },
+						{ id: "channel-b", name: "渠道 B", status: "auto" },
 					],
 				},
 			],
@@ -32,12 +32,12 @@ describe("channel model rows", () => {
 		);
 
 		expect(rows).toEqual([
-			{ model: "gpt-4.1", status: "enabled" },
-			{ model: "claude-sonnet", status: "pending" },
+			{ model: "gpt-4.1", status: "auto" },
+			{ model: "claude-sonnet", status: "manual" },
 		]);
 	});
 
-	it("按正式、待加入、排除排序", () => {
+	it("按自动、手动、排除排序", () => {
 		const rows = getChannelModelRows(
 			[
 				{
@@ -47,21 +47,21 @@ describe("channel model rows", () => {
 					],
 				},
 				{
-					id: "b-enabled",
+					id: "b-auto",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "enabled" },
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
 					],
 				},
 				{
-					id: "a-enabled",
+					id: "a-auto",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "enabled" },
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
 					],
 				},
 				{
-					id: "m-pending",
+					id: "m-manual",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "pending" },
+						{ id: "channel-a", name: "渠道 A", status: "manual" },
 					],
 				},
 			],
@@ -69,9 +69,9 @@ describe("channel model rows", () => {
 		);
 
 		expect(rows).toEqual([
-			{ model: "a-enabled", status: "enabled" },
-			{ model: "b-enabled", status: "enabled" },
-			{ model: "m-pending", status: "pending" },
+			{ model: "a-auto", status: "auto" },
+			{ model: "b-auto", status: "auto" },
+			{ model: "m-manual", status: "manual" },
 			{ model: "z-excluded", status: "excluded" },
 		]);
 	});
@@ -82,13 +82,13 @@ describe("channel model rows", () => {
 				{
 					id: "existing-enabled",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "enabled" },
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
 					],
 				},
 				{
-					id: "existing-pending",
+					id: "existing-manual",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "pending" },
+						{ id: "channel-a", name: "渠道 A", status: "manual" },
 					],
 				},
 			],
@@ -97,23 +97,82 @@ describe("channel model rows", () => {
 		);
 
 		expect(rows).toEqual([
-			{ model: "existing-enabled", status: "enabled" },
-			{ model: "preview-model", status: "enabled" },
-			{ model: "existing-pending", status: "pending" },
+			{ model: "existing-enabled", status: "auto" },
+			{ model: "preview-model", status: "auto" },
+			{ model: "existing-manual", status: "manual" },
+		]);
+	});
+
+	it("临时拉取模型按统一模型展示并保留实际别名", () => {
+		const rows = getChannelModelRows(
+			[
+				{
+					id: "gemma-7b",
+					raw_ids: ["google/gemma-7b-it"],
+					channels: [
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
+					],
+				},
+			],
+			"channel-a",
+			["google/gemma-7b-it", "@hf/google/gemma-7b-it", "gemma-7b"],
+		);
+
+		expect(rows).toEqual([
+			{
+				model: "gemma-7b",
+				status: "auto",
+				rawIds: ["@hf/google/gemma-7b-it", "google/gemma-7b-it"],
+			},
+		]);
+	});
+
+	it("实际别名只展示当前渠道保存或本次预览拉取到的名字", () => {
+		const rows = getChannelModelRows(
+			[
+				{
+					id: "gemma-7b",
+					raw_ids: ["google/gemma-7b-it", "other/gemma-7b-instruct"],
+					channels: [
+						{
+							id: "channel-a",
+							name: "渠道 A",
+							raw_ids: ["google/gemma-7b-it"],
+							status: "auto",
+						},
+						{
+							id: "channel-b",
+							name: "渠道 B",
+							raw_ids: ["other/gemma-7b-instruct"],
+							status: "auto",
+						},
+					],
+				},
+			],
+			"channel-a",
+			["@hf/google/gemma-7b-it"],
+		);
+
+		expect(rows).toEqual([
+			{
+				model: "gemma-7b",
+				status: "auto",
+				rawIds: ["@hf/google/gemma-7b-it", "google/gemma-7b-it"],
+			},
 		]);
 	});
 
 	it("按关键词和状态筛选后分页展示", () => {
 		const rows = Array.from({ length: 16 }, (_, index) => ({
 			model: `model-${String(index + 1).padStart(2, "0")}`,
-			status: index % 2 === 0 ? ("enabled" as const) : ("pending" as const),
+			status: index % 2 === 0 ? ("auto" as const) : ("manual" as const),
 		}));
 
 		const result = getPagedChannelModelRows(rows, {
 			page: 2,
 			pageSize: 3,
 			search: "model-",
-			status: "enabled",
+			status: "auto",
 		});
 
 		expect(result.total).toBe(8);

@@ -68,6 +68,7 @@ import {
 import {
 	getChannelModelRows,
 	getPagedChannelModelRows,
+	type ChannelModelRow,
 	type ChannelModelStatusFilter,
 } from "./channel-models";
 import { getRequestEntryFormatOptions } from "./request-entry-formats";
@@ -127,14 +128,13 @@ const siteStatusOptions = [
 	{ value: "disabled", label: getSiteStatusLabel("disabled") },
 ];
 const modelStatusOptions = [
-	{ value: "enabled", label: "正式" },
-	{ value: "pending", label: "待加入" },
+	{ value: "manual", label: "手动" },
 	{ value: "excluded", label: "排除" },
 ];
 const modelFilterOptions = [
 	{ value: "all", label: "全部" },
-	{ value: "enabled", label: "正式" },
-	{ value: "pending", label: "待加入" },
+	{ value: "auto", label: "自动" },
+	{ value: "manual", label: "手动" },
 	{ value: "excluded", label: "已排除" },
 ];
 const channelModelPageSize = 8;
@@ -539,7 +539,7 @@ export const ChannelsView = ({
 	);
 	const [draftModelName, setDraftModelName] = useState("");
 	const [draftModelStatus, setDraftModelStatus] =
-		useState<ModelChannel["status"]>("pending");
+		useState<ModelChannel["status"]>("manual");
 	const [modelSearch, setModelSearch] = useState("");
 	const [modelStatusFilter, setModelStatusFilter] =
 		useState<ChannelModelStatusFilter>("all");
@@ -1499,8 +1499,8 @@ export const ChannelsView = ({
 		activeModelSite ? (siteModelPreviewBySiteId[activeModelSite.id] ?? []) : [],
 	);
 	const modelRowsByStatus = {
-		enabled: modelRows.filter((item) => item.status === "enabled"),
-		pending: modelRows.filter((item) => item.status === "pending"),
+		auto: modelRows.filter((item) => item.status === "auto"),
+		manual: modelRows.filter((item) => item.status === "manual"),
 		excluded: modelRows.filter((item) => item.status === "excluded"),
 	};
 	const modelPageResult = getPagedChannelModelRows(modelRows, {
@@ -1515,10 +1515,10 @@ export const ChannelsView = ({
 	);
 	const hasChannelModelRows = modelRows.length > 0;
 	const getModelStatusVariant = (status: ModelChannel["status"]) => {
-		if (status === "enabled") {
+		if (status === "auto") {
 			return "success" as const;
 		}
-		if (status === "pending") {
+		if (status === "manual") {
 			return "warning" as const;
 		}
 		return "danger" as const;
@@ -1563,11 +1563,9 @@ export const ChannelsView = ({
 						</p>
 					</div>
 					<div class="flex flex-wrap items-center gap-1.5">
-						<Chip variant="success">
-							正式 {modelRowsByStatus.enabled.length}
-						</Chip>
+						<Chip variant="success">自动 {modelRowsByStatus.auto.length}</Chip>
 						<Chip variant="warning">
-							待加入 {modelRowsByStatus.pending.length}
+							手动 {modelRowsByStatus.manual.length}
 						</Chip>
 						<Chip variant="danger">
 							排除 {modelRowsByStatus.excluded.length}
@@ -1655,9 +1653,7 @@ export const ChannelsView = ({
 							</div>
 						) : (
 							<div class="divide-y divide-white/70">
-								{modelPageResult.rows.map((row) =>
-									renderModelRow(row.model, row.status),
-								)}
+								{modelPageResult.rows.map((row) => renderModelRow(row))}
 							</div>
 						)}
 						{modelPageResult.totalPages > 1 && (
@@ -1682,7 +1678,8 @@ export const ChannelsView = ({
 			</Card>
 		);
 	};
-	const renderModelRow = (model: string, status: ModelChannel["status"]) => {
+	const renderModelRow = (row: ChannelModelRow) => {
+		const { model, status } = row;
 		const actionPending = isActionPending(
 			`model:${activeModelSite?.id}:${model}`,
 		);
@@ -1695,45 +1692,46 @@ export const ChannelsView = ({
 					<p class="truncate text-xs font-semibold text-[color:var(--app-ink)]">
 						{model}
 					</p>
+					{row.rawIds && row.rawIds.length > 0 && (
+						<div class="mt-1 flex flex-wrap gap-1">
+							{row.rawIds.map((rawId) => (
+								<Chip
+									key={`${model}:raw:${rawId}`}
+									class="max-w-[220px] truncate text-[10px]"
+									title={rawId}
+								>
+									{rawId}
+								</Chip>
+							))}
+						</div>
+					)}
 				</div>
 				<div>
 					<Chip variant={getModelStatusVariant(status)}>
-						{status === "enabled"
-							? "正式"
-							: status === "pending"
-								? "待加入"
+						{status === "auto"
+							? "自动"
+							: status === "manual"
+								? "手动"
 								: "已排除"}
 					</Chip>
 				</div>
 				<div class="col-span-2 flex flex-wrap justify-start gap-1.5 md:col-span-1 md:justify-end">
-					{status !== "enabled" && (
+					{status === "excluded" && (
 						<Button
 							class="h-8 px-2 text-[11px]"
 							size="sm"
 							variant="primary"
 							type="button"
 							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "enabled")}
+							onClick={() => setChannelModelStatus(model, "manual")}
 						>
-							加入正式
-						</Button>
-					)}
-					{status !== "pending" && (
-						<Button
-							class="h-8 px-2 text-[11px]"
-							size="sm"
-							type="button"
-							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "pending")}
-						>
-							转待加入
+							转手动
 						</Button>
 					)}
 					{status !== "excluded" && (
 						<Button
 							class="h-8 px-2 text-[11px]"
 							size="sm"
-							variant="ghost"
 							type="button"
 							disabled={actionPending}
 							onClick={() => setChannelModelStatus(model, "excluded")}
@@ -1741,16 +1739,30 @@ export const ChannelsView = ({
 							排除
 						</Button>
 					)}
-					<Button
-						class="h-8 px-2 text-[11px]"
-						size="sm"
-						variant="ghost"
-						type="button"
-						disabled={actionPending}
-						onClick={() => setChannelModelStatus(model, "auto")}
-					>
-						删除
-					</Button>
+					{status === "manual" && (
+						<Button
+							class="h-8 px-2 text-[11px]"
+							size="sm"
+							variant="ghost"
+							type="button"
+							disabled={actionPending}
+							onClick={() => setChannelModelStatus(model, "auto")}
+						>
+							删除
+						</Button>
+					)}
+					{status === "excluded" && (
+						<Button
+							class="h-8 px-2 text-[11px]"
+							size="sm"
+							variant="ghost"
+							type="button"
+							disabled={actionPending}
+							onClick={() => setChannelModelStatus(model, "auto")}
+						>
+							删除
+						</Button>
+					)}
 				</div>
 			</div>
 		);

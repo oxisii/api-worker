@@ -11,14 +11,14 @@ describe("site and model display behavior", () => {
 				{
 					id: "gpt-4.1",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "enabled" },
+						{ id: "channel-a", name: "渠道 A", status: "auto" },
 						{ id: "channel-b", name: "渠道 B", status: "excluded" },
 					],
 				},
 				{
 					id: "claude-sonnet",
 					channels: [
-						{ id: "channel-a", name: "渠道 A", status: "pending" },
+						{ id: "channel-a", name: "渠道 A", status: "manual" },
 					],
 				},
 			],

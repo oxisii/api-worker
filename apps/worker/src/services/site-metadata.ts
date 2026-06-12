@@ -26,7 +26,6 @@ export type SiteMetadata = {
 	endpoint_overrides: EndpointOverrides;
 	request_entry: RequestEntry;
 	manual_include_models: string[];
-	manual_pending_models: string[];
 	manual_exclude_models: string[];
 };
 
@@ -112,7 +111,6 @@ export function parseSiteMetadata(
 		},
 		request_entry: parseRequestEntry(parsed.request_entry),
 		manual_include_models: normalizeModelList(parsed.manual_include_models),
-		manual_pending_models: normalizeModelList(parsed.manual_pending_models),
 		manual_exclude_models: normalizeModelList(parsed.manual_exclude_models),
 	};
 }
@@ -128,6 +126,7 @@ export function buildSiteMetadata(
 	},
 ): string | null {
 	const base = safeJsonParse<Record<string, unknown>>(existing, {});
+	delete base.manual_pending_models;
 	if (updates.site_type) {
 		base.site_type = updates.site_type;
 	}

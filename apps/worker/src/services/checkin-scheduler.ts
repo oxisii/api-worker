@@ -236,7 +236,7 @@ export class CheckinScheduler {
 						error_message: null,
 						report,
 					});
-					if (refreshResult.summary.success > 0) {
+					if (refreshResult.items.some((item) => item.models_changed)) {
 						await invalidateSelectionHotCache(this.env.KV_HOT);
 					}
 					await this.state.storage.put(

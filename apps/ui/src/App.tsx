@@ -960,13 +960,14 @@ const App = () => {
 			models: Array<{
 				id: string;
 				counts?: {
-					enabled: number;
-					pending: number;
+					auto: number;
+					manual: number;
 					excluded: number;
 				};
 				channels: Array<{
 					id: string;
 					name: string;
+					raw_ids?: string[];
 					status: ModelChannel["status"];
 				}>;
 			}>;
@@ -3509,14 +3510,11 @@ const App = () => {
 					}),
 				});
 				await Promise.all([loadModels(), loadSites()]);
-				const statusLabel =
-					status === "enabled"
-						? "正式"
-						: status === "pending"
-							? "待加入"
-							: status === "excluded"
-								? "已排除"
-								: "已删除";
+				if (status === "auto") {
+					pushNotice("success", `模型已删除：${model}`);
+					return;
+				}
+				const statusLabel = status === "manual" ? "手动" : "已排除";
 				pushNotice("success", `模型已更新为${statusLabel}：${model}`);
 			} catch (error) {
 				pushNotice("error", (error as Error).message);

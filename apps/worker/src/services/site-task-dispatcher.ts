@@ -105,6 +105,7 @@ export type SiteChannelRefreshItem = {
 		code: string;
 		reason: string;
 	}>;
+	models_changed?: boolean;
 	models: string[];
 };
 
@@ -883,6 +884,7 @@ async function refreshChannelModels(
 			successful_tokens: successfulTokens,
 			failed_tokens: failedTokens,
 			failure_groups: failureGroups,
+			models_changed: false,
 			models: [],
 		};
 	}
@@ -901,6 +903,7 @@ async function refreshChannelModels(
 			successful_tokens: successfulTokens,
 			failed_tokens: failedTokens,
 			failure_groups: [],
+			models_changed: false,
 			models: result.models,
 		};
 	}
@@ -936,6 +939,7 @@ async function refreshChannelModels(
 		successful_tokens: successfulTokens,
 		failed_tokens: failedTokens,
 		failure_groups: [],
+		models_changed: true,
 		models: result.models,
 	};
 }

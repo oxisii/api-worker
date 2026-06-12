@@ -1,9 +1,18 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import {
+	deriveCanonicalModel,
+	normalizeModelAlias,
+	toCanonicalModelSet,
+} from "../../../shared-core/src";
 import { nowIso } from "../utils/time";
 
+export {
+	deriveCanonicalModel,
+	normalizeModelAlias,
+	toCanonicalModelSet,
+} from "../../../shared-core/src";
+
 const GLOBAL_PROVIDER_HINT = "";
-const STRIP_PREFIXES = ["@hf/"];
-const STRIP_SUFFIXES = [":free", ":beta", ":preview"];
 const FAMILY_SUFFIXES = ["-it", "-instruct"];
 
 export type CanonicalModelResolution = {
@@ -19,36 +28,11 @@ function normalizeProviderKey(value: string | null | undefined): string {
 		.toLowerCase();
 }
 
-function normalizeText(value: string | null | undefined): string {
+export function normalizeText(value: string | null | undefined): string {
 	return String(value ?? "")
 		.trim()
 		.toLowerCase()
 		.replace(/\s+/g, "");
-}
-
-function stripKnownPrefix(value: string): string {
-	let next = value;
-	for (const prefix of STRIP_PREFIXES) {
-		if (next.startsWith(prefix)) {
-			next = next.slice(prefix.length);
-		}
-	}
-	return next;
-}
-
-function stripKnownSuffix(value: string): string {
-	let next = value;
-	for (const suffix of STRIP_SUFFIXES) {
-		if (next.endsWith(suffix)) {
-			next = next.slice(0, -suffix.length);
-		}
-	}
-	return next;
-}
-
-function toLastSegment(value: string): string {
-	const parts = value.split("/").filter(Boolean);
-	return parts[parts.length - 1] ?? value;
 }
 
 function buildFamilyCandidates(value: string): string[] {
@@ -62,32 +46,6 @@ function buildFamilyCandidates(value: string): string[] {
 	return Array.from(candidates);
 }
 
-export function normalizeModelAlias(
-	value: string | null | undefined,
-): string | null {
-	const normalized = normalizeText(value);
-	if (!normalized) {
-		return null;
-	}
-	return stripKnownSuffix(stripKnownPrefix(normalized)) || null;
-}
-
-export function deriveCanonicalModel(
-	value: string | null | undefined,
-): string | null {
-	const normalized = normalizeModelAlias(value);
-	if (!normalized) {
-		return null;
-	}
-	const lastSegment = toLastSegment(normalized);
-	for (const suffix of FAMILY_SUFFIXES) {
-		if (lastSegment.endsWith(suffix) && lastSegment.length > suffix.length) {
-			return lastSegment.slice(0, -suffix.length);
-		}
-	}
-	return lastSegment;
-}
-
 export function canonicalModelEquals(
 	left: string | null | undefined,
 	right: string | null | undefined,
@@ -97,19 +55,6 @@ export function canonicalModelEquals(
 	return Boolean(
 		leftCanonical && rightCanonical && leftCanonical === rightCanonical,
 	);
-}
-
-export function toCanonicalModelSet(
-	values: Iterable<string | null | undefined>,
-): Set<string> {
-	const set = new Set<string>();
-	for (const value of values) {
-		const canonical = deriveCanonicalModel(value);
-		if (canonical) {
-			set.add(canonical);
-		}
-	}
-	return set;
 }
 
 async function lookupCanonicalAlias(

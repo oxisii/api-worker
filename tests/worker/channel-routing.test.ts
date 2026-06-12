@@ -73,7 +73,7 @@ describe("channel routing with effective models", () => {
 		expect(candidates).toEqual([]);
 	});
 
-	it("已有验证模型时不使用旧 models_json 扩大路由范围", () => {
+	it("models_json 作为自动来源参与路由", () => {
 		const channel = buildChannel({
 			models_json: JSON.stringify([{ id: "listed-only" }]),
 		});
@@ -84,7 +84,7 @@ describe("channel routing with effective models", () => {
 			new Map([["channel-a", new Set(["verified-model"])]]),
 		);
 
-		expect(candidates).toEqual([]);
+		expect(candidates.map((item) => item.id)).toEqual(["channel-a"]);
 	});
 
 	it("尝试计划会先排当前渠道的原始精确别名，再排同渠道其他候选", () => {
