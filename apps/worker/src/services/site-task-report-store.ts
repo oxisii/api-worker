@@ -52,6 +52,7 @@ export type SiteTaskProgress = {
 type SiteTaskReportBase = {
 	kind: SiteTaskKind;
 	status: "running" | "completed" | "failed";
+	runtime_instance_id?: string | null;
 	runs_at: string;
 	started_at: string;
 	finished_at?: string | null;
@@ -92,6 +93,8 @@ const SITE_TASK_KINDS = Object.keys(
 const SITE_TASK_KIND_BY_SETTING_KEY = new Map<string, SiteTaskKind>(
 	SITE_TASK_KINDS.map((kind) => [SITE_TASK_REPORT_SETTING_KEYS[kind], kind]),
 );
+
+const SITE_TASK_RUNTIME_INSTANCE_ID = crypto.randomUUID();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -200,6 +203,11 @@ function normalizeSiteTaskReportState(
 	}
 	return {
 		...(parsed as SiteTaskReportState),
+		runtime_instance_id:
+			parsed.runtime_instance_id === undefined ||
+			parsed.runtime_instance_id === null
+				? null
+				: String(parsed.runtime_instance_id),
 		started_at: String(parsed.started_at ?? runsAt),
 		finished_at:
 			parsed.finished_at === undefined || parsed.finished_at === null
@@ -229,6 +237,37 @@ function parseSiteTaskReport(
 	} catch {
 		return null;
 	}
+}
+
+function shouldInvalidateRunningReport(report: SiteTaskReportState): boolean {
+	if (report.status !== "running") {
+		return false;
+	}
+	return (
+		report.runtime_instance_id !== null &&
+		report.runtime_instance_id !== SITE_TASK_RUNTIME_INSTANCE_ID
+	);
+}
+
+function buildInvalidatedRunningReport(
+	report: SiteTaskReportState,
+): SiteTaskReportState {
+	const finishedAt = nowIso();
+	return {
+		...report,
+		status: "failed",
+		finished_at: finishedAt,
+		runtime_instance_id: SITE_TASK_RUNTIME_INSTANCE_ID,
+		error_message:
+			report.error_message?.trim() ||
+			"任务所属服务实例已重启，旧的运行中状态已自动结束。",
+		progress: {
+			...report.progress,
+			current_site_id: null,
+			current_site_name: null,
+			updated_at: finishedAt,
+		},
+	};
 }
 
 async function upsertSetting(
@@ -264,11 +303,18 @@ export async function listSiteTaskReports(
 		if (!kind) {
 			continue;
 		}
-		const report = parseSiteTaskReport(kind, String(row.value ?? ""));
+		const parsedReport = parseSiteTaskReport(kind, String(row.value ?? ""));
+		const report =
+			parsedReport && shouldInvalidateRunningReport(parsedReport)
+				? buildInvalidatedRunningReport(parsedReport)
+				: parsedReport;
 		if (!report) {
 			continue;
 		}
 		reports[kind] = report;
+		if (report !== parsedReport) {
+			await saveSiteTaskReport(db, report);
+		}
 	}
 	return reports;
 }
@@ -277,9 +323,21 @@ export async function saveSiteTaskReport(
 	db: D1Database,
 	report: SiteTaskReportState,
 ): Promise<void> {
+	const normalizedReport =
+		report.status === "running"
+			? {
+					...report,
+					runtime_instance_id: SITE_TASK_RUNTIME_INSTANCE_ID,
+				}
+			: report.runtime_instance_id === undefined
+				? report
+				: {
+						...report,
+						runtime_instance_id: report.runtime_instance_id ?? null,
+					};
 	await upsertSetting(
 		db,
-		SITE_TASK_REPORT_SETTING_KEYS[report.kind],
-		JSON.stringify(report),
+		SITE_TASK_REPORT_SETTING_KEYS[normalizedReport.kind],
+		JSON.stringify(normalizedReport),
 	);
 }
