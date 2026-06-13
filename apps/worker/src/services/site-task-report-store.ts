@@ -94,7 +94,14 @@ const SITE_TASK_KIND_BY_SETTING_KEY = new Map<string, SiteTaskKind>(
 	SITE_TASK_KINDS.map((kind) => [SITE_TASK_REPORT_SETTING_KEYS[kind], kind]),
 );
 
-const SITE_TASK_RUNTIME_INSTANCE_ID = crypto.randomUUID();
+let siteTaskRuntimeInstanceId: string | null = null;
+
+function getSiteTaskRuntimeInstanceId(): string {
+	if (!siteTaskRuntimeInstanceId) {
+		siteTaskRuntimeInstanceId = crypto.randomUUID();
+	}
+	return siteTaskRuntimeInstanceId;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -245,7 +252,7 @@ function shouldInvalidateRunningReport(report: SiteTaskReportState): boolean {
 	}
 	return (
 		report.runtime_instance_id !== null &&
-		report.runtime_instance_id !== SITE_TASK_RUNTIME_INSTANCE_ID
+		report.runtime_instance_id !== getSiteTaskRuntimeInstanceId()
 	);
 }
 
@@ -257,7 +264,7 @@ function buildInvalidatedRunningReport(
 		...report,
 		status: "failed",
 		finished_at: finishedAt,
-		runtime_instance_id: SITE_TASK_RUNTIME_INSTANCE_ID,
+		runtime_instance_id: getSiteTaskRuntimeInstanceId(),
 		error_message:
 			report.error_message?.trim() ||
 			"任务所属服务实例已重启，旧的运行中状态已自动结束。",
@@ -327,7 +334,7 @@ export async function saveSiteTaskReport(
 		report.status === "running"
 			? {
 					...report,
-					runtime_instance_id: SITE_TASK_RUNTIME_INSTANCE_ID,
+					runtime_instance_id: getSiteTaskRuntimeInstanceId(),
 				}
 			: report.runtime_instance_id === undefined
 				? report
