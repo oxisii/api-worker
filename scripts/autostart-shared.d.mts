@@ -22,6 +22,11 @@ export function escapeForSingleQuotedPowerShell(value: unknown): string;
 export function normalizeDevArgs(args: string[]): string[];
 export function buildTaskArguments(args: string[]): string[];
 export function encodePowerShellCommand(script: string): string;
+export function cleanPowerShellErrorText(text: unknown): string;
+export function formatWindowsAutostartPermissionError(input: {
+	errorText: unknown;
+	isElevated: boolean;
+}): string;
 export function parseInteractiveSelection(
 	raw: unknown,
 	maxIndex: number,

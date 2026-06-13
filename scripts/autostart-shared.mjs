@@ -53,6 +53,49 @@ export const buildLinuxServiceArguments = (args) => {
 export const encodePowerShellCommand = (script) =>
 	Buffer.from(script, "utf16le").toString("base64");
 
+export const cleanPowerShellErrorText = (text) => {
+	const raw = String(text ?? "").trim();
+	if (!raw) {
+		return "";
+	}
+	const decoded = raw
+		.replace(/_x000D__x000A_/gu, "\n")
+		.replace(/_x000D_/gu, "\r")
+		.replace(/_x000A_/gu, "\n");
+	if (!decoded.includes("#< CLIXML")) {
+		return decoded.trim();
+	}
+	const errorSegments = Array.from(
+		decoded.matchAll(/<S S="Error">([\s\S]*?)<\/S>/gu),
+		(match) => match[1].trim(),
+	).filter(Boolean);
+	if (errorSegments.length > 0) {
+		return errorSegments.join("\n").trim();
+	}
+	return decoded
+		.replace(/<[^>]+>/gu, " ")
+		.replace(/\s+/gu, " ")
+		.trim();
+};
+
+export const formatWindowsAutostartPermissionError = ({
+	errorText,
+	isElevated,
+}) => {
+	const cleaned = cleanPowerShellErrorText(errorText);
+	if (!/access is denied/iu.test(cleaned)) {
+		return cleaned;
+	}
+	if (!isElevated) {
+		return [
+			"当前终端未以管理员身份运行，Windows 拒绝创建计划任务。",
+			"请用管理员身份重新打开 PowerShell 或 Windows Terminal 后重试 `bun autostart`。",
+			`原始错误: ${cleaned}`,
+		].join("\n");
+	}
+	return `Windows 拒绝创建计划任务，请检查本机计划任务权限或组策略设置。\n原始错误: ${cleaned}`;
+};
+
 export const parseInteractiveSelection = (raw, maxIndex) => {
 	const text = String(raw ?? "").trim();
 	if (text.length === 0) {

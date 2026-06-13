@@ -22,9 +22,11 @@ import {
 	buildLinuxAutostartUnit,
 	buildTaskArguments,
 	classifyLinuxAutostartStatus,
+	cleanPowerShellErrorText,
 	detectLinuxAutostartLaunchMode,
 	encodePowerShellCommand,
 	escapeForSingleQuotedPowerShell,
+	formatWindowsAutostartPermissionError,
 	getLinuxAutostartPaths,
 	interactiveEnableOptions,
 	linuxAutostartServiceName,
@@ -118,11 +120,20 @@ const runCommand = (command, args, fallbackMessage, options = {}) => {
 
 const runPowerShell = (script) => {
 	const encodedCommand = encodePowerShellCommand(script);
-	const result = runCommand(
+	const result = spawnSync(
 		"powershell.exe",
 		["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand],
-		"PowerShell 执行失败。",
+		{ encoding: "utf8" },
 	);
+	if (result.error) {
+		throw result.error;
+	}
+	if (result.status !== 0) {
+		const errorText = cleanPowerShellErrorText(
+			result.stderr?.trim() || result.stdout?.trim() || "PowerShell 执行失败。",
+		);
+		throw new Error(errorText || "PowerShell 执行失败。");
+	}
 	return result.stdout.trim();
 };
 
@@ -302,6 +313,22 @@ $action = $task.Actions | Select-Object -First 1
 		: null;
 };
 
+const getWindowsElevationState = () => {
+	ensureWindows();
+	const result = runPowerShellJson(`
+$id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object System.Security.Principal.WindowsPrincipal($id)
+[pscustomobject]@{
+  user = $id.Name
+  isElevated = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+} | ConvertTo-Json -Compress
+`);
+	return {
+		user: result?.user ?? null,
+		isElevated: Boolean(result?.isElevated),
+	};
+};
+
 const enableWindowsAutostart = (args) => {
 	ensureWindows();
 	const escapedTaskName = escapeForSingleQuotedPowerShell(autostartTaskName);
@@ -309,8 +336,7 @@ const enableWindowsAutostart = (args) => {
 	const escapedExecute = escapeForSingleQuotedPowerShell(launcher.execute);
 	const escapedArguments = escapeForSingleQuotedPowerShell(launcher.arguments);
 	const escapedRepoRoot = escapeForSingleQuotedPowerShell(repoRoot);
-
-	const result = runPowerShellJson(`
+	const encodedCommand = encodePowerShellCommand(`
 $ErrorActionPreference = 'Stop'
 $userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute '${escapedExecute}' -Argument '${escapedArguments}' -WorkingDirectory '${escapedRepoRoot}'
@@ -325,12 +351,34 @@ Register-ScheduledTask -TaskName '${escapedTaskName}' -Action $action -Trigger $
   workingDirectory = $action.WorkingDirectory
 } | ConvertTo-Json -Compress
 `);
+	const result = spawnSync(
+		"powershell.exe",
+		["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand],
+		{ encoding: "utf8" },
+	);
+	if (result.error) {
+		throw result.error;
+	}
+	if (result.status !== 0) {
+		const elevationState = getWindowsElevationState();
+		throw new Error(
+			formatWindowsAutostartPermissionError({
+				errorText:
+					result.stderr?.trim() ||
+					result.stdout?.trim() ||
+					"PowerShell 执行失败。",
+				isElevated: elevationState.isElevated,
+			}),
+		);
+	}
+	const stdout = result.stdout.trim();
+	const parsed = stdout ? JSON.parse(stdout) : null;
 
 	console.log("✅ 已开启自启动。");
-	console.log(`计划任务: ${result.taskName}`);
-	console.log(`程序: ${result.execute}（隐藏启动器）`);
-	console.log(`参数: ${result.arguments}`);
-	console.log(`工作目录: ${result.workingDirectory}`);
+	console.log(`计划任务: ${parsed.taskName}`);
+	console.log(`程序: ${parsed.execute}（隐藏启动器）`);
+	console.log(`参数: ${parsed.arguments}`);
+	console.log(`工作目录: ${parsed.workingDirectory}`);
 };
 
 const disableWindowsAutostart = () => {
