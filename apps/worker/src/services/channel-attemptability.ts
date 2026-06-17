@@ -133,6 +133,19 @@ export function selectTokenForModel<T extends ModelScopedToken>(
 			hasModelList,
 		};
 	}
+	const tokensWithoutModels = tokensWithModels
+		.filter((entry) => !entry.models)
+		.map((entry) => entry.token);
+	if (tokensWithoutModels.length > 0) {
+		return {
+			token: pickTokenBySelectionKey(
+				tokensWithoutModels,
+				selectionKey,
+				selectionOffset,
+			),
+			hasModelList,
+		};
+	}
 	return { token: null, hasModelList };
 }
 
