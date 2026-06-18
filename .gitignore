@@ -10,12 +10,10 @@
 **/tests
 !tests/
 /tests/*
-!tests/scripts/
-!tests/scripts/**
-!tests/worker/
-!tests/worker/**
-!tests/ui/
-!tests/ui/**
+!tests/e2e/
+!tests/e2e/**
+!tests/unit/
+!tests/unit/**
 playwright-report
 test-results
 .dev

@@ -16,7 +16,7 @@
 - Create: `apps/worker/src/services/pricing/types.ts`
 - Create: `apps/worker/src/services/pricing/builtin.ts`
 - Create: `apps/worker/src/services/pricing/calculator.ts`
-- Create: `tests/worker/pricing-calculator.test.ts`
+- Create: `tests/unit/worker/pricing-calculator.test.ts`
 
 - [ ] Add tests for price priority, wildcard matching, markup, cache token pricing, and missing price fallback.
 - [ ] Implement focused pricing types, built-in model prices, and calculator helpers.
@@ -31,7 +31,7 @@
 - Modify: `apps/worker/src/services/proxy/attempt-runner.ts`
 - Modify: `apps/worker/src/wasm/core.ts`
 - Modify: `apps/worker/wasm/src/lib.rs`
-- Modify: `tests/worker/usage-recording.test.ts`
+- Modify: `tests/unit/worker/usage-recording.test.ts`
 
 - [ ] Add tests for cache token extraction from OpenAI, Claude, and Gemini usage payloads.
 - [ ] Extend normalized usage with cache read/write and uncached input token fields.

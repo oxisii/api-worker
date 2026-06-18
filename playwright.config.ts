@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 const reuseExistingServer = process.env.CI ? false : true;
 
 export default defineConfig({
-	testDir: "./e2e",
+	testDir: "./tests/e2e",
 	timeout: 60_000,
 	fullyParallel: false,
 	workers: 1,
