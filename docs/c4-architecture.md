@@ -77,7 +77,7 @@ C4Component
 		Component(entry, "Hono 应用入口", "src/index.ts", "注册 CORS、鉴权中间件、路由、静态资源回退和错误处理")
 		Component(adminRoutes, "管理 API 路由", "src/routes/*", "auth、sites/channels、models、canonical-models、pricing、tokens、usage、dashboard、settings、backup")
 		Component(newApiRoutes, "New API 兼容路由", "routes/newapi*.ts", "兼容 `/api/channel`、`/api/group`、`/api/user`")
-		Component(proxy, "OpenAI 兼容代理", "shared/proxy.ts + services/proxy/*", "Token 鉴权、模型归一、渠道筛选、请求改写、重试、错误策略、响应收尾")
+		Component(proxy, "OpenAI 兼容代理", "domains/proxy/*", "Token 鉴权、模型归一、渠道筛选、请求改写、重试、错误策略、响应收尾")
 		Component(channelServices, "渠道与模型服务", "domains/channel/*, domains/model/*", "渠道仓库、模型能力、冷却、有效模型、调用令牌、统一模型注册")
 		Component(usageServices, "用量与尝试事件服务", "domains/usage/*, domains/pricing/*", "记录 usage、计费金额、尝试日志、价格匹配和同步")
 		Component(siteTasks, "站点任务服务", "domains/site/*, domains/checkin/*", "签到、模型刷新、站点验证、禁用渠道恢复探测")
@@ -259,7 +259,7 @@ sequenceDiagram
 - 入口与路由：`apps/worker/src/index.ts`、`apps/attempt-worker/src/index.ts`
 - Cloudflare 绑定：`apps/worker/wrangler.toml`、`apps/attempt-worker/wrangler.toml`
 - 数据结构：`apps/worker/src/db/schema.sql`、`apps/worker/migrations/*`
-- 代理编排：`apps/worker/src/shared/proxy.ts`、`apps/worker/src/services/proxy/*`
+- 代理编排：`apps/worker/src/domains/proxy/route.ts`、`apps/worker/src/domains/proxy/*`
 - 调用执行器：`apps/attempt-worker/src/routes/attempt.ts`
 - 站点任务与定时调度：`apps/worker/src/domains/site/task-dispatcher.ts`、`apps/worker/src/domains/checkin/scheduler.ts`
 - 管理台：`apps/ui/src/App.tsx`、`apps/ui/src/core/api.ts`

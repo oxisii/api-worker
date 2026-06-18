@@ -13,7 +13,7 @@
 
 文件粒度也不一致：
 
-- 巨型文件承担太多职责，例如 `apps/ui/src/App.tsx`、`apps/ui/src/features/ChannelsView.tsx`、`apps/worker/src/services/chat-response-adapter.ts`、`apps/worker/src/shared/proxy.ts`。
+- 巨型文件承担太多职责，例如 `apps/ui/src/App.tsx`、`apps/ui/src/features/ChannelsView.tsx`、`apps/worker/src/domains/proxy/adapters/*`、`apps/worker/src/domains/proxy/route.ts`。
 - 很小的文件独立存在，但只服务单一领域，例如 `usage-format.ts`、`pricing-sync.ts`、`call-token-selector.ts`、`stream-options.ts`。
 
 仓库还跟踪了部分构建生成物，例如 `apps/worker/.wrangler-build/*`。这类文件会干扰源码目录判断。

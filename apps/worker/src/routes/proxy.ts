@@ -1,1 +1,1 @@
-export { default } from "../shared/proxy";
+export { default } from "../domains/proxy/route";

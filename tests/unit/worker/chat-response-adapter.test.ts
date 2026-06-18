@@ -59,7 +59,7 @@ vi.mock("../../../apps/worker/src/wasm/core", async () => {
 });
 
 const { adaptChatResponse } = await import(
-	"../../../apps/worker/src/services/chat-response-adapter"
+	"../../../apps/worker/src/domains/proxy/adapters"
 );
 
 async function readResponseText(response: Response): Promise<string> {

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const usageObserveSource = readFileSync(
-	"apps/worker/src/services/proxy/usage-observe.ts",
+	"apps/worker/src/domains/proxy/response/usage-observe.ts",
 	"utf8",
 );
 
