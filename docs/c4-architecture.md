@@ -262,4 +262,4 @@ sequenceDiagram
 - 代理编排：`apps/worker/src/domains/proxy/route.ts`、`apps/worker/src/domains/proxy/*`
 - 调用执行器：`apps/attempt-worker/src/routes/attempt.ts`
 - 站点任务与定时调度：`apps/worker/src/domains/site/task-dispatcher.ts`、`apps/worker/src/domains/checkin/scheduler.ts`
-- 管理台：`apps/ui/src/App.tsx`、`apps/ui/src/core/api.ts`
+- 管理台：`apps/ui/src/app/App.tsx`、`apps/ui/src/App.tsx`（Vite 兼容入口）、`apps/ui/src/core/api.ts`

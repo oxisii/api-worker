@@ -1,0 +1,4741 @@
+import "../styles.css";
+import {
+	render,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "hono/jsx/dom";
+import {
+	getDefaultBaseUrlForSiteType,
+	supportsSiteCheckin,
+} from "../../../shared-core/src";
+import {
+	Button,
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "../components/ui";
+import { createApiFetch } from "../core/api";
+import { reconcileCanonicalModelSyncResult } from "../core/canonical-model-sync";
+import {
+	initialBackupSettings,
+	initialDashboardQuery,
+	initialData,
+	initialSettingsForm,
+	initialSiteForm,
+	initialTokenForm,
+	tabs,
+} from "../core/constants";
+import {
+	filterSites,
+	getPrimaryVerificationIssue,
+	getVerificationAttemptStatusLabel,
+	getVerificationAttemptSummary,
+	getVerificationAttempts,
+	getRefreshFailedTokenLabels,
+	getRefreshFailureDetails,
+	getRequestEntryFormatLabel,
+	getVerificationFailedTokenIssues,
+	getSuggestedActionLabel,
+	getVerificationStageTone,
+	getVerificationVerdictLabel,
+	summarizeVerificationResults,
+	type RecoveryCleanupGroup,
+	type SiteSortState,
+	sortSites,
+} from "../core/sites";
+import type {
+	AdminData,
+	CanonicalModelInput,
+	CanonicalModelCleanupPreview,
+	CanonicalModelItem,
+	CanonicalModelSyncResult,
+	BackupImportMode,
+	BackupManualAction,
+	BackupImportResult,
+	BackupSettings,
+	BackupSyncResult,
+	CheckinSummary,
+	DashboardData,
+	DashboardQuery,
+	ModelChannel,
+	ModelPrice,
+	ModelPriceInput,
+	ManualPriceCleanupPreview,
+	ModelStatusUpdate,
+	NoticeMessage,
+	NoticeTone,
+	PricingSyncResult,
+	Settings,
+	SettingsForm,
+	SiteChannelRefreshBatchReport,
+	Site,
+	SiteForm,
+	SiteTaskResultState,
+	SiteTaskReportMap,
+	SiteVerificationBatchReport,
+	SiteVerificationResult,
+	TabId,
+	Token,
+	TokenForm,
+	UsageQuery,
+	UsageResponse,
+} from "../core/types";
+import {
+	formatChinaDateTimeMinute,
+	getBeijingDateString,
+	loadPageSizePref,
+	persistPageSizePref,
+	toChinaDateTimeInput,
+	toChinaIsoFromInput,
+	toggleStatus,
+} from "../core/utils";
+import { AppLayout } from "../features/layout/AppLayout";
+import { CanonicalModelsView } from "../features/canonical-models/CanonicalModelsView";
+import { ChannelsView } from "../features/channels/ChannelsView";
+import { DashboardView } from "../features/dashboard/DashboardView";
+import { LoginView } from "../features/login/LoginView";
+import { ModelsView } from "../features/models/ModelsView";
+import { PricingView } from "../features/pricing/PricingView";
+import { getCurrencyDisplayLabel } from "../features/pricing/display";
+import { didPricingDisplayConfigChange } from "../features/pricing/sync-state";
+import { isRequestEntryFormatAllowedForSiteType } from "../features/channels/request-entry-formats";
+import { SettingsView } from "../features/settings/SettingsView";
+import { shouldVerifyAfterSiteSubmit } from "../features/models/model-display";
+import { TokensView } from "../features/tokens/TokensView";
+import { UsageView } from "../features/usage/UsageView";
+
+const root = document.querySelector<HTMLDivElement>("#app");
+
+if (!root) {
+	throw new Error("Missing #app root");
+}
+
+const normalizePath = (path: string) => {
+	if (path.length <= 1) {
+		return "/";
+	}
+	return path.replace(/\/+$/, "") || "/";
+};
+
+const tabToPath: Record<TabId, string> = {
+	dashboard: "/",
+	channels: "/channels",
+	models: "/models",
+	canonicalModels: "/canonical-models",
+	pricing: "/pricing",
+	tokens: "/tokens",
+	usage: "/usage",
+	settings: "/settings",
+};
+
+const pathToTab: Record<string, TabId> = {
+	"/": "dashboard",
+	"/channels": "channels",
+	"/models": "models",
+	"/canonical-models": "canonicalModels",
+	"/pricing": "pricing",
+	"/tokens": "tokens",
+	"/usage": "usage",
+	"/settings": "settings",
+};
+
+const canonicalModelSyncResultStorageKey = "canonical-models:sync-result";
+
+const loadCanonicalModelSyncResult = (): CanonicalModelSyncResult | null => {
+	if (typeof window === "undefined") {
+		return null;
+	}
+	try {
+		const raw = window.localStorage.getItem(canonicalModelSyncResultStorageKey);
+		if (!raw) {
+			return null;
+		}
+		const parsed = JSON.parse(raw);
+		if (!parsed || typeof parsed !== "object") {
+			return null;
+		}
+		if (
+			!("runs_at" in parsed) ||
+			!("conflicts" in parsed) ||
+			!("invalid_rules" in parsed) ||
+			!("imported_items" in parsed)
+		) {
+			return null;
+		}
+		return parsed as CanonicalModelSyncResult;
+	} catch (_error) {
+		return null;
+	}
+};
+
+const persistCanonicalModelSyncResult = (
+	result: CanonicalModelSyncResult | null,
+) => {
+	if (typeof window === "undefined") {
+		return;
+	}
+	if (!result) {
+		window.localStorage.removeItem(canonicalModelSyncResultStorageKey);
+		return;
+	}
+	window.localStorage.setItem(
+		canonicalModelSyncResultStorageKey,
+		JSON.stringify(result),
+	);
+};
+
+type ConfirmState = {
+	title: string;
+	message: string;
+	previewItems?: Array<{
+		id: string;
+		title: string;
+		detail?: string;
+		actionLabel?: string;
+		actionKey?: string;
+		onAction?: () => Promise<void> | void;
+	}>;
+	previewSummary?: string;
+	previewQuestion?: string;
+	confirmLabel?: string;
+	tone?: NoticeTone;
+	onConfirm: () => Promise<void> | void;
+};
+
+type SiteVerificationDialogState = {
+	title: string;
+	result: SiteVerificationResult;
+};
+
+type EditableBackupSettings = Pick<
+	BackupSettings,
+	| "enabled"
+	| "schedule_time"
+	| "sync_mode"
+	| "conflict_policy"
+	| "import_mode"
+	| "webdav_url"
+	| "webdav_username"
+	| "webdav_password"
+	| "webdav_path"
+	| "keep_versions"
+>;
+
+const buildActionKey = (scope: string, id?: string) =>
+	id ? `${scope}:${id}` : scope;
+
+const siteTaskKinds = [
+	"checkin",
+	"verify-active",
+	"verify-disabled",
+	"refresh-active",
+] as const;
+
+const getVerificationStageClass = (tone: string) => {
+	if (tone === "success") {
+		return "border-emerald-200 bg-emerald-50/80 text-emerald-700";
+	}
+	if (tone === "warning") {
+		return "border-amber-200 bg-amber-50/80 text-amber-700";
+	}
+	if (tone === "danger") {
+		return "border-rose-200 bg-rose-50/80 text-rose-700";
+	}
+	return "border-white/60 bg-white/70 text-[color:var(--app-ink-muted)]";
+};
+
+const pickEditableBackupSettings = (
+	settings: BackupSettings,
+): EditableBackupSettings => ({
+	enabled: settings.enabled,
+	schedule_time: settings.schedule_time,
+	sync_mode: settings.sync_mode,
+	conflict_policy: settings.conflict_policy,
+	import_mode: settings.import_mode,
+	webdav_url: settings.webdav_url,
+	webdav_username: settings.webdav_username,
+	webdav_password: settings.webdav_password,
+	webdav_path: settings.webdav_path,
+	keep_versions: settings.keep_versions,
+});
+
+const initialUsageQuery: UsageQuery = {
+	channel_ids: [],
+	token_ids: [],
+	models: [],
+	statuses: [],
+	from: "",
+	to: "",
+};
+
+const buildRecommendedSettingsForm = (
+	currentAdminPassword: string,
+): SettingsForm => ({
+	...initialSettingsForm,
+	admin_password: currentAdminPassword,
+	channel_disable_error_codes: [
+		...initialSettingsForm.channel_disable_error_codes,
+	],
+	proxy_retry_sleep_error_codes: [
+		...initialSettingsForm.proxy_retry_sleep_error_codes,
+	],
+	proxy_retry_return_error_codes: [
+		...initialSettingsForm.proxy_retry_return_error_codes,
+	],
+	proxy_retry_max_retries: "3",
+	channel_recovery_probe_enabled: true,
+});
+
+const buildSettingsFormFromSettings = (settings: Settings): SettingsForm => {
+	const runtimeSettings = settings.runtime_settings ?? settings.runtime_config;
+	return {
+		log_retention_days: String(settings.log_retention_days ?? 30),
+		session_ttl_hours: String(settings.session_ttl_hours ?? 12),
+		admin_password: "",
+		checkin_schedule_time: settings.checkin_schedule_time ?? "00:10",
+		channel_refresh_enabled: settings.channel_refresh_enabled ?? false,
+		channel_refresh_schedule_time:
+			settings.channel_refresh_schedule_time ?? "02:40",
+		channel_recovery_probe_enabled:
+			settings.channel_recovery_probe_enabled ?? false,
+		channel_recovery_probe_schedule_time:
+			settings.channel_recovery_probe_schedule_time ?? "03:10",
+		proxy_model_failure_cooldown_minutes: String(
+			runtimeSettings?.model_failure_cooldown_minutes ?? 720,
+		),
+		proxy_model_failure_cooldown_threshold: String(
+			runtimeSettings?.model_failure_cooldown_threshold ?? 3,
+		),
+		channel_disable_error_codes:
+			runtimeSettings?.channel_disable_error_codes ?? [
+				"account_deactivated",
+				"insufficient_balance",
+				"insufficient_user_quota",
+				"permission_error",
+			],
+		channel_disable_error_threshold: String(
+			runtimeSettings?.channel_disable_error_threshold ?? 3,
+		),
+		channel_disable_error_code_minutes: String(
+			runtimeSettings?.channel_disable_error_code_minutes ?? 1440,
+		),
+		proxy_upstream_timeout_ms: String(
+			runtimeSettings?.upstream_timeout_ms ?? 180000,
+		),
+		proxy_retry_max_retries: String(runtimeSettings?.retry_max_retries ?? 5),
+		proxy_retry_sleep_ms: String(runtimeSettings?.retry_sleep_ms ?? 500),
+		proxy_retry_sleep_error_codes: runtimeSettings?.retry_sleep_error_codes ?? [
+			"system_cpu_overloaded",
+			"system_disk_overloaded",
+		],
+		proxy_retry_return_error_codes:
+			runtimeSettings?.retry_return_error_codes ?? [
+				"no_available_channels",
+				"upstream_cooldown",
+				"responses_previous_response_id_required",
+				"responses_affinity_missing",
+				"responses_affinity_channel_disabled",
+				"responses_affinity_channel_not_allowed",
+				"responses_affinity_channel_model_unavailable",
+				"responses_affinity_channel_cooldown",
+				"responses_tool_call_chain_mismatch",
+				"invalid_encrypted_content",
+				"invalid_function_parameters",
+			],
+		proxy_zero_completion_as_error_enabled:
+			runtimeSettings?.zero_completion_as_error_enabled ?? true,
+		proxy_stream_usage_mode: runtimeSettings?.stream_usage_mode ?? "lite",
+		proxy_stream_usage_max_parsers: String(
+			runtimeSettings?.stream_usage_max_parsers ?? 0,
+		),
+		proxy_stream_usage_parse_timeout_ms: String(
+			runtimeSettings?.stream_usage_parse_timeout_ms ?? 0,
+		),
+		proxy_responses_affinity_ttl_seconds: String(
+			runtimeSettings?.responses_affinity_ttl_seconds ?? 86400,
+		),
+		proxy_stream_options_capability_ttl_seconds: String(
+			runtimeSettings?.stream_options_capability_ttl_seconds ?? 604800,
+		),
+		proxy_attempt_worker_fallback_enabled:
+			runtimeSettings?.attempt_worker_fallback_enabled ?? true,
+		proxy_attempt_worker_fallback_threshold: String(
+			runtimeSettings?.attempt_worker_fallback_threshold ?? 3,
+		),
+		proxy_large_request_offload_threshold_bytes: String(
+			runtimeSettings?.large_request_offload_threshold_bytes ?? 32768,
+		),
+		site_task_concurrency: String(runtimeSettings?.site_task_concurrency ?? 4),
+		site_task_timeout_ms: String(
+			runtimeSettings?.site_task_timeout_ms ?? 12000,
+		),
+		site_task_fallback_enabled:
+			runtimeSettings?.site_task_fallback_enabled ?? true,
+		site_verification_model_limit: String(
+			runtimeSettings?.verification_model_limit ??
+				settings.site_verification_model_limit ??
+				3,
+		),
+		pricing_sync_enabled: settings.pricing_settings?.sync_enabled ?? false,
+		pricing_sync_schedule_time:
+			settings.pricing_settings?.sync_schedule_time ?? "04:40",
+		pricing_sync_sources: settings.pricing_settings?.sync_sources ?? [
+			"openai",
+			"anthropic",
+			"gemini",
+			"deepseek",
+			"qwen",
+			"moonshot",
+			"zhipu",
+			"openrouter",
+		],
+		pricing_default_markup: String(
+			settings.pricing_settings?.default_markup ?? 1,
+		),
+		pricing_currency: settings.pricing_settings?.currency ?? "CNY",
+		pricing_usd_cny_rate: String(
+			settings.pricing_settings?.usd_cny_rate ?? 7.2,
+		),
+	};
+};
+
+const isSettingsFormValueEqual = (
+	left: SettingsForm[keyof SettingsForm],
+	right: SettingsForm[keyof SettingsForm],
+) => {
+	if (Array.isArray(left) || Array.isArray(right)) {
+		return JSON.stringify(left) === JSON.stringify(right);
+	}
+	return left === right;
+};
+
+const mergeSettingsFormWithSnapshot = (
+	currentForm: SettingsForm,
+	previousSnapshot: SettingsForm,
+	nextSnapshot: SettingsForm,
+): SettingsForm => {
+	const nextForm = { ...currentForm } as SettingsForm;
+	for (const key of Object.keys(nextSnapshot) as Array<keyof SettingsForm>) {
+		if (isSettingsFormValueEqual(currentForm[key], previousSnapshot[key])) {
+			(
+				nextForm as Record<keyof SettingsForm, SettingsForm[keyof SettingsForm]>
+			)[key] = nextSnapshot[key];
+		}
+	}
+	return nextForm;
+};
+
+const buildRunningSiteTaskReport = (
+	kind: SiteTaskResultState["kind"],
+	total: number,
+	startedAt: string,
+): SiteTaskResultState => {
+	const progress = {
+		total,
+		completed: 0,
+		success: 0,
+		warning: 0,
+		failed: 0,
+		skipped: 0,
+		current_site_id: null,
+		current_site_name: null,
+		updated_at: startedAt,
+	};
+	if (kind === "checkin") {
+		return {
+			kind,
+			status: "running",
+			runs_at: startedAt,
+			started_at: startedAt,
+			finished_at: null,
+			progress,
+			error_message: null,
+			summary: {
+				total,
+				success: 0,
+				failed: 0,
+				skipped: 0,
+			},
+			items: [],
+		};
+	}
+	if (kind === "refresh-active") {
+		return {
+			kind,
+			status: "running",
+			runs_at: startedAt,
+			started_at: startedAt,
+			finished_at: null,
+			progress,
+			error_message: null,
+			report: {
+				summary: {
+					total,
+					success: 0,
+					warning: 0,
+					failed: 0,
+				},
+				items: [],
+				runs_at: startedAt,
+			},
+		};
+	}
+	return {
+		kind,
+		status: "running",
+		runs_at: startedAt,
+		started_at: startedAt,
+		finished_at: null,
+		progress,
+		error_message: null,
+		report: {
+			summary: {
+				total,
+				serving: 0,
+				degraded: 0,
+				failed: 0,
+				recoverable: 0,
+				not_recoverable: 0,
+				skipped: 0,
+			},
+			items: [],
+			runs_at: startedAt,
+		},
+	};
+};
+
+const dashboardPresetDays: Record<DashboardQuery["preset"], number> = {
+	all: 0,
+	"7d": 7,
+	"30d": 30,
+	"90d": 90,
+	"1y": 365,
+	custom: 30,
+};
+
+const resolveDashboardRange = (query: DashboardQuery) => {
+	const today = new Date();
+	if (query.preset === "all") {
+		return { from: "", to: "", days: 0 };
+	}
+	if (query.preset !== "custom") {
+		const days = dashboardPresetDays[query.preset];
+		const fromDate = new Date(today);
+		fromDate.setDate(today.getDate() - (days - 1));
+		return {
+			from: getBeijingDateString(fromDate),
+			to: getBeijingDateString(today),
+			days,
+		};
+	}
+	const fromValue = query.from || getBeijingDateString(today);
+	const toValue = query.to || getBeijingDateString(today);
+	const fromDate = new Date(fromValue);
+	const toDate = new Date(toValue);
+	const diffDays =
+		Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())
+			? 1
+			: Math.max(
+					1,
+					Math.ceil((toDate.getTime() - fromDate.getTime()) / 86400000) + 1,
+				);
+	return { from: fromValue, to: toValue, days: diffDays };
+};
+
+const buildDashboardParams = (query: DashboardQuery) => {
+	const interval = query.interval;
+	if (query.preset === "all") {
+		const params = new URLSearchParams();
+		params.set("interval", interval);
+		params.set("limit", "366");
+		const channelIds = query.channel_ids.filter(Boolean);
+		const tokenIds = query.token_ids.filter(Boolean);
+		if (channelIds.length > 0) {
+			params.set("channel_ids", channelIds.join(","));
+		}
+		if (tokenIds.length > 0) {
+			params.set("token_ids", tokenIds.join(","));
+		}
+		if (query.model) {
+			params.set("model", query.model);
+		}
+		return { params, range: { from: "", to: "" } };
+	}
+	const { from, to, days } = resolveDashboardRange(query);
+	const limit =
+		interval === "day"
+			? days
+			: interval === "week"
+				? Math.ceil(days / 7)
+				: Math.ceil(days / 30);
+	const params = new URLSearchParams();
+	params.set("interval", interval);
+	params.set("limit", String(limit));
+	if (from) {
+		params.set("from", `${from} 00:00:00`);
+	}
+	if (to) {
+		params.set("to", `${to} 23:59:59`);
+	}
+	const channelIds = query.channel_ids.filter(Boolean);
+	const tokenIds = query.token_ids.filter(Boolean);
+	if (channelIds.length > 0) {
+		params.set("channel_ids", channelIds.join(","));
+	}
+	if (tokenIds.length > 0) {
+		params.set("token_ids", tokenIds.join(","));
+	}
+	if (query.model) {
+		params.set("model", query.model);
+	}
+	return { params, range: { from, to } };
+};
+
+/**
+ * Renders the admin console application.
+ *
+ * Returns:
+ *   Root application JSX element.
+ */
+const App = () => {
+	const [token, setToken] = useState<string | null>(() =>
+		localStorage.getItem("admin_token"),
+	);
+	const [activeTab, setActiveTab] = useState<TabId>(() => {
+		if (typeof window === "undefined") {
+			return "dashboard";
+		}
+		const normalized = normalizePath(window.location.pathname);
+		return pathToTab[normalized] ?? "dashboard";
+	});
+	const [loading, setLoading] = useState(false);
+	const [notices, setNotices] = useState<NoticeMessage[]>([]);
+	const [data, setData] = useState<AdminData>(initialData);
+	const [dashboardQuery, setDashboardQuery] = useState<DashboardQuery>(() => {
+		if (typeof window === "undefined") {
+			return initialDashboardQuery;
+		}
+		const storedPreset = window.localStorage.getItem("dashboard:preset");
+		const storedInterval = window.localStorage.getItem("dashboard:interval");
+		const storedFrom = window.localStorage.getItem("dashboard:from") ?? "";
+		const storedTo = window.localStorage.getItem("dashboard:to") ?? "";
+		const allowedPresets: Array<DashboardQuery["preset"]> = [
+			"all",
+			"7d",
+			"30d",
+			"90d",
+			"1y",
+			"custom",
+		];
+		const preset = allowedPresets.includes(
+			storedPreset as DashboardQuery["preset"],
+		)
+			? (storedPreset as DashboardQuery["preset"])
+			: initialDashboardQuery.preset;
+		const interval =
+			storedInterval === "day" ||
+			storedInterval === "week" ||
+			storedInterval === "month"
+				? (storedInterval as DashboardQuery["interval"])
+				: initialDashboardQuery.interval;
+		if (preset === "custom") {
+			return {
+				...initialDashboardQuery,
+				preset,
+				interval,
+				from: storedFrom,
+				to: storedTo,
+			};
+		}
+		return { ...initialDashboardQuery, preset, interval, from: "", to: "" };
+	});
+	const [settingsForm, setSettingsForm] =
+		useState<SettingsForm>(initialSettingsForm);
+	const [settingsFormSnapshot, setSettingsFormSnapshot] =
+		useState<SettingsForm>(initialSettingsForm);
+	const settingsFormSnapshotRef = useRef<SettingsForm>(initialSettingsForm);
+	const [modelPrices, setModelPrices] = useState<ModelPrice[]>([]);
+	const [canonicalModels, setCanonicalModels] = useState<CanonicalModelItem[]>(
+		[],
+	);
+	const [canonicalModelSyncResult, setCanonicalModelSyncResult] =
+		useState<CanonicalModelSyncResult | null>(() =>
+			loadCanonicalModelSyncResult(),
+		);
+	const visibleCanonicalModelSyncResult = useMemo(
+		() =>
+			reconcileCanonicalModelSyncResult(
+				canonicalModelSyncResult,
+				canonicalModels,
+			),
+		[canonicalModelSyncResult, canonicalModels],
+	);
+	const [lastPricingSyncResult, setLastPricingSyncResult] =
+		useState<PricingSyncResult | null>(null);
+	const [backupSettings, setBackupSettings] = useState<BackupSettings>(
+		initialBackupSettings,
+	);
+	const [backupSettingsSnapshot, setBackupSettingsSnapshot] =
+		useState<EditableBackupSettings>(() =>
+			pickEditableBackupSettings(initialBackupSettings),
+		);
+	const [backupImportMode, setBackupImportMode] =
+		useState<BackupImportMode>("merge");
+	const [backupImportFile, setBackupImportFile] = useState<File | null>(null);
+	const [retryErrorCodeOptions, setRetryErrorCodeOptions] = useState<string[]>(
+		[],
+	);
+	const [siteSearch, setSiteSearch] = useState("");
+	const [siteSort, setSiteSort] = useState<SiteSortState>({
+		key: "name",
+		direction: "asc",
+	});
+	const [tokenPage, setTokenPage] = useState(1);
+	const [tokenPageSize, setTokenPageSize] = useState(() =>
+		loadPageSizePref("pageSize:tokens", 10),
+	);
+	const [editingToken, setEditingToken] = useState<Token | null>(null);
+	const [tokenForm, setTokenForm] = useState<TokenForm>(initialTokenForm);
+	const [usagePage, setUsagePage] = useState(1);
+	const [usagePageSize, setUsagePageSize] = useState(() =>
+		loadPageSizePref("pageSize:usage", 50),
+	);
+	const [usageTotal, setUsageTotal] = useState(0);
+	const [usageFilters, setUsageFilters] =
+		useState<UsageQuery>(initialUsageQuery);
+	const [usageQuery, setUsageQuery] = useState<UsageQuery>(initialUsageQuery);
+	const [editingSite, setEditingSite] = useState<Site | null>(null);
+	const [siteForm, setSiteForm] = useState<SiteForm>(() => ({
+		...initialSiteForm,
+	}));
+	const [siteModelPreviewBySiteId, setSiteModelPreviewBySiteId] = useState<
+		Record<string, string[]>
+	>({});
+	const [isSiteModalOpen, setSiteModalOpen] = useState(false);
+	const [isTokenModalOpen, setTokenModalOpen] = useState(false);
+	const [siteTaskReports, setSiteTaskReports] = useState<SiteTaskReportMap>({});
+	const [siteVerificationDialog, setSiteVerificationDialog] =
+		useState<SiteVerificationDialogState | null>(null);
+	const [, setPendingActions] = useState<Set<string>>(() => new Set());
+	const pendingActionsRef = useRef<Set<string>>(new Set()) as {
+		current: Set<string>;
+	};
+	const noticeTimersRef = useRef<Map<number, number>>(new Map()) as {
+		current: Map<number, number>;
+	};
+	const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+	const [confirmPending, setConfirmPending] = useState(false);
+
+	const updateToken = useCallback((next: string | null) => {
+		setToken(next);
+		if (next) {
+			localStorage.setItem("admin_token", next);
+		} else {
+			localStorage.removeItem("admin_token");
+		}
+	}, []);
+
+	const pushNotice = useCallback(
+		(tone: NoticeTone, message: string, durationMs?: number) => {
+			setNotices((prev) => [
+				...prev,
+				{ tone, message, id: Date.now() + Math.random(), durationMs },
+			]);
+		},
+		[],
+	);
+
+	const dismissNotice = useCallback((id?: number) => {
+		setNotices((prev) => {
+			if (id === undefined) {
+				return [];
+			}
+			return prev.filter((item) => item.id !== id);
+		});
+	}, []);
+
+	useEffect(() => {
+		const timers = noticeTimersRef.current;
+		const activeIds = new Set(notices.map((item) => item.id));
+		for (const [id, timer] of timers) {
+			if (!activeIds.has(id)) {
+				window.clearTimeout(timer);
+				timers.delete(id);
+			}
+		}
+		for (const notice of notices) {
+			if (timers.has(notice.id)) {
+				continue;
+			}
+			const durationMs = notice.durationMs ?? 4500;
+			const timer = window.setTimeout(() => {
+				dismissNotice(notice.id);
+			}, durationMs);
+			timers.set(notice.id, timer);
+		}
+	}, [dismissNotice, notices]);
+
+	useEffect(() => {
+		return () => {
+			for (const timer of noticeTimersRef.current.values()) {
+				window.clearTimeout(timer);
+			}
+			noticeTimersRef.current.clear();
+		};
+	}, []);
+
+	useEffect(() => {
+		settingsFormSnapshotRef.current = settingsFormSnapshot;
+	}, [settingsFormSnapshot]);
+
+	const startAction = useCallback((key: string) => {
+		if (pendingActionsRef.current.has(key)) {
+			return;
+		}
+		pendingActionsRef.current.add(key);
+		setPendingActions(new Set(pendingActionsRef.current));
+	}, []);
+
+	const endAction = useCallback((key: string) => {
+		pendingActionsRef.current.delete(key);
+		setPendingActions(new Set(pendingActionsRef.current));
+	}, []);
+
+	const isActionPending = useCallback(
+		(key: string) => pendingActionsRef.current.has(key),
+		[],
+	);
+
+	const openConfirm = useCallback((state: ConfirmState) => {
+		setConfirmState(state);
+	}, []);
+
+	const closeConfirm = useCallback(() => {
+		if (!confirmPending) {
+			setConfirmState(null);
+		}
+	}, [confirmPending]);
+
+	const closeSiteVerificationDialog = useCallback(() => {
+		setSiteVerificationDialog(null);
+	}, []);
+
+	const handleConfirm = useCallback(async () => {
+		if (!confirmState || confirmPending) {
+			return;
+		}
+		setConfirmPending(true);
+		try {
+			await confirmState.onConfirm();
+		} finally {
+			setConfirmPending(false);
+			setConfirmState(null);
+		}
+	}, [confirmPending, confirmState]);
+
+	useEffect(() => {
+		if (!confirmState) {
+			return;
+		}
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				closeConfirm();
+			}
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [confirmState, closeConfirm]);
+
+	const apiFetch = useMemo(
+		() => createApiFetch(token, () => updateToken(null)),
+		[token, updateToken],
+	);
+
+	const loadDashboard = useCallback(
+		async (override?: DashboardQuery) => {
+			const query = override ?? dashboardQuery;
+			const { params } = buildDashboardParams(query);
+			const dashboard = await apiFetch<DashboardData>(
+				`/api/dashboard?${params.toString()}`,
+			);
+			setData((prev) => ({ ...prev, dashboard }));
+		},
+		[apiFetch, dashboardQuery],
+	);
+
+	const handleDashboardRefresh = useCallback(async () => {
+		const actionKey = buildActionKey("dashboard:refresh");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			await Promise.all([loadSettings(), loadDashboard()]);
+			pushNotice("success", "数据已刷新");
+		} catch (error) {
+			await loadSites().catch(() => undefined);
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [endAction, isActionPending, loadDashboard, pushNotice, startAction]);
+
+	const handleDashboardQueryChange = useCallback(
+		(patch: Partial<DashboardQuery>) => {
+			setDashboardQuery((prev) => {
+				const next = { ...prev, ...patch };
+				if (typeof window !== "undefined") {
+					window.localStorage.setItem("dashboard:preset", next.preset);
+					window.localStorage.setItem("dashboard:interval", next.interval);
+					if (next.preset === "custom") {
+						window.localStorage.setItem("dashboard:from", next.from);
+						window.localStorage.setItem("dashboard:to", next.to);
+					} else {
+						window.localStorage.removeItem("dashboard:from");
+						window.localStorage.removeItem("dashboard:to");
+					}
+				}
+				return next;
+			});
+		},
+		[],
+	);
+
+	const handleDashboardApply = useCallback(
+		async (override?: DashboardQuery) => {
+			const actionKey = buildActionKey("dashboard:filter");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			const nextQuery = override ?? dashboardQuery;
+			startAction(actionKey);
+			try {
+				await Promise.all([loadSettings(), loadDashboard(nextQuery)]);
+				pushNotice("success", "筛选已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			dashboardQuery,
+			endAction,
+			isActionPending,
+			loadDashboard,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const loadSites = useCallback(async () => {
+		const result = await apiFetch<{
+			sites: Site[];
+			task_reports?: SiteTaskReportMap;
+		}>("/api/sites");
+		setData((prev) => ({
+			...prev,
+			sites: result.sites,
+		}));
+		setEditingSite((prev) => {
+			if (!prev) {
+				return prev;
+			}
+			return result.sites.find((site) => site.id === prev.id) ?? prev;
+		});
+		setSiteTaskReports(result.task_reports ?? {});
+	}, [apiFetch]);
+
+	const loadModels = useCallback(async () => {
+		const result = await apiFetch<{
+			models: Array<{
+				id: string;
+				counts?: {
+					auto: number;
+					manual: number;
+					excluded: number;
+				};
+				channels: Array<{
+					id: string;
+					name: string;
+					raw_ids?: string[];
+					status: ModelChannel["status"];
+				}>;
+			}>;
+		}>("/api/models");
+		setData((prev) => ({ ...prev, models: result.models }));
+	}, [apiFetch]);
+
+	const loadPricingModels = useCallback(async () => {
+		const result = await apiFetch<{ prices: ModelPrice[] }>(
+			"/api/pricing/models",
+		);
+		setModelPrices(result.prices);
+	}, [apiFetch]);
+
+	const loadCanonicalModels = useCallback(async () => {
+		const result = await apiFetch<{ items: CanonicalModelItem[] }>(
+			"/api/canonical-models",
+		);
+		setCanonicalModels(result.items);
+	}, [apiFetch]);
+
+	const loadTokens = useCallback(async () => {
+		const result = await apiFetch<{ tokens: Token[] }>("/api/tokens");
+		setData((prev) => ({ ...prev, tokens: result.tokens }));
+	}, [apiFetch]);
+
+	const loadUsage = useCallback(
+		async (options?: {
+			page?: number;
+			pageSize?: number;
+			query?: UsageQuery;
+		}) => {
+			const page = options?.page ?? usagePage;
+			const pageSize = options?.pageSize ?? usagePageSize;
+			const query = options?.query ?? usageQuery;
+			const params = new URLSearchParams();
+			const offset = Math.max(0, (page - 1) * pageSize);
+			params.set("limit", String(pageSize));
+			params.set("offset", String(offset));
+			const channelIds = query.channel_ids.filter(Boolean);
+			const tokenIds = query.token_ids.filter(Boolean);
+			const models = query.models.filter(Boolean);
+			const statuses = query.statuses.filter(Boolean);
+			const from = query.from.trim();
+			const to = query.to.trim();
+			if (from) {
+				params.set("from", `${from} 00:00:00`);
+			}
+			if (to) {
+				params.set("to", `${to} 23:59:59`);
+			}
+			if (channelIds.length > 0) {
+				params.set("channel_ids", channelIds.join(","));
+			}
+			if (tokenIds.length > 0) {
+				params.set("token_ids", tokenIds.join(","));
+			}
+			if (models.length > 0) {
+				params.set("models", models.join(","));
+			}
+			if (statuses.length > 0) {
+				params.set("statuses", statuses.join(","));
+			}
+			const result = await apiFetch<UsageResponse>(
+				`/api/usage?${params.toString()}`,
+			);
+			setData((prev) => ({ ...prev, usage: result.logs }));
+			setUsageTotal(result.total ?? result.logs.length);
+		},
+		[apiFetch, usagePage, usagePageSize, usageQuery],
+	);
+	const hasRunningSiteTask = useMemo(
+		() =>
+			siteTaskKinds.some((kind) => siteTaskReports[kind]?.status === "running"),
+		[siteTaskReports],
+	);
+
+	useEffect(() => {
+		if (!token || !hasRunningSiteTask) {
+			return;
+		}
+		const timer = window.setInterval(() => {
+			void loadSites().catch(() => {
+				// Keep polling lightweight; surfaced errors still come from user actions.
+			});
+		}, 3000);
+		return () => window.clearInterval(timer);
+	}, [hasRunningSiteTask, loadSites, token]);
+
+	const loadSettings = useCallback(async () => {
+		const settings = await apiFetch<Settings>("/api/settings");
+		setData((prev) => ({ ...prev, settings }));
+	}, [apiFetch]);
+
+	const loadPricingContext = useCallback(async () => {
+		await Promise.all([loadSettings(), loadPricingModels()]);
+	}, [loadPricingModels, loadSettings]);
+
+	const refreshPricingDisplayData = useCallback(async () => {
+		await Promise.all([loadPricingContext(), loadDashboard(), loadUsage()]);
+	}, [loadDashboard, loadPricingContext, loadUsage]);
+
+	const pricingCurrency =
+		data.settings?.pricing_settings?.currency ?? settingsForm.pricing_currency;
+	const pricingUsdCnyRate =
+		data.settings?.pricing_settings?.usd_cny_rate ??
+		(Number(settingsForm.pricing_usd_cny_rate || "7.2") || 7.2);
+	const pricingSyncSources =
+		data.settings?.pricing_settings?.sync_sources ??
+		settingsForm.pricing_sync_sources;
+
+	const loadRetryErrorCodes = useCallback(async () => {
+		const result = await apiFetch<{
+			items?: Array<{ error_code?: string | null }>;
+		}>("/api/usage/error-codes?limit=500");
+		const codes = Array.from(
+			new Set(
+				(result.items ?? [])
+					.map((item) => String(item.error_code ?? "").trim())
+					.filter(Boolean),
+			),
+		).sort((left, right) => left.localeCompare(right));
+		setRetryErrorCodeOptions(codes);
+	}, [apiFetch]);
+
+	const loadBackupSettings = useCallback(async () => {
+		const settings = await apiFetch<BackupSettings>("/api/backup/sync-config");
+		setBackupSettings(settings);
+		setBackupSettingsSnapshot(pickEditableBackupSettings(settings));
+	}, [apiFetch]);
+
+	const loadTab = useCallback(
+		async (tabId: TabId) => {
+			setLoading(true);
+			dismissNotice();
+			try {
+				if (tabId === "dashboard") {
+					await Promise.all([
+						loadSettings(),
+						loadDashboard(),
+						loadSites(),
+						loadTokens(),
+					]);
+				}
+				if (tabId === "channels") {
+					await Promise.all([loadSites(), loadModels()]);
+				}
+				if (tabId === "models") {
+					await loadModels();
+				}
+				if (tabId === "canonicalModels") {
+					await loadCanonicalModels();
+				}
+				if (tabId === "pricing") {
+					await loadPricingContext();
+				}
+				if (tabId === "tokens") {
+					await Promise.all([loadTokens(), loadSites()]);
+				}
+				if (tabId === "usage") {
+					await Promise.all([
+						loadSettings(),
+						loadUsage(),
+						loadSites(),
+						loadTokens(),
+						loadModels(),
+					]);
+				}
+				if (tabId === "settings") {
+					await Promise.all([
+						loadSettings(),
+						loadRetryErrorCodes(),
+						loadBackupSettings(),
+					]);
+				}
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				setLoading(false);
+			}
+		},
+		[
+			dismissNotice,
+			loadCanonicalModels,
+			loadDashboard,
+			loadModels,
+			loadPricingContext,
+			loadPricingModels,
+			loadRetryErrorCodes,
+			loadBackupSettings,
+			loadSettings,
+			loadSites,
+			loadTokens,
+			loadUsage,
+			pushNotice,
+		],
+	);
+
+	useEffect(() => {
+		if (token) {
+			loadTab(activeTab);
+		}
+	}, [token, activeTab, loadTab]);
+
+	useEffect(() => {
+		const handlePopState = () => {
+			const normalized = normalizePath(window.location.pathname);
+			setActiveTab(pathToTab[normalized] ?? "dashboard");
+		};
+		window.addEventListener("popstate", handlePopState);
+		return () => {
+			window.removeEventListener("popstate", handlePopState);
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!data.settings) {
+			return;
+		}
+		const nextSettingsForm = buildSettingsFormFromSettings(data.settings);
+		setSettingsForm((prev) =>
+			mergeSettingsFormWithSnapshot(
+				prev ?? initialSettingsForm,
+				settingsFormSnapshotRef.current ?? initialSettingsForm,
+				nextSettingsForm,
+			),
+		);
+		setSettingsFormSnapshot(nextSettingsForm);
+		setLastPricingSyncResult(
+			data.settings.pricing_settings?.last_sync_result ?? null,
+		);
+	}, [data.settings]);
+
+	const handleLogin = useCallback(
+		async (event: Event) => {
+			event.preventDefault();
+			const actionKey = buildActionKey("login:submit");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			const form = event.currentTarget as HTMLFormElement;
+			const formData = new FormData(form);
+			const password = String(formData.get("password") ?? "");
+			try {
+				const result = await apiFetch<{ token: string }>("/api/auth/login", {
+					method: "POST",
+					body: JSON.stringify({ password }),
+				});
+				updateToken(result.token);
+				dismissNotice();
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			dismissNotice,
+			endAction,
+			isActionPending,
+			pushNotice,
+			startAction,
+			updateToken,
+		],
+	);
+
+	const handleLogout = useCallback(async () => {
+		await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+		updateToken(null);
+	}, [apiFetch, updateToken]);
+
+	const handleSiteFormChange = useCallback((patch: Partial<SiteForm>) => {
+		setSiteForm((prev) => {
+			const next = { ...prev, ...patch };
+			if (
+				patch.site_type &&
+				next.request_entry_format &&
+				!isRequestEntryFormatAllowedForSiteType(
+					patch.site_type,
+					next.request_entry_format,
+				)
+			) {
+				next.request_entry_format = "";
+			}
+			if (
+				patch.site_type &&
+				(!patch.base_url || patch.base_url.trim().length === 0) &&
+				!prev.base_url.trim()
+			) {
+				const fallback = getDefaultBaseUrlForSiteType(patch.site_type);
+				if (fallback) {
+					next.base_url = fallback;
+				}
+			}
+			return next;
+		});
+	}, []);
+
+	const handleSettingsFormChange = useCallback(
+		(patch: Partial<SettingsForm>) => {
+			setSettingsForm((prev) => ({ ...prev, ...patch }));
+		},
+		[],
+	);
+
+	const handleBackupSettingsChange = useCallback(
+		(patch: Partial<BackupSettings>) => {
+			setBackupSettings((prev) => ({ ...prev, ...patch }));
+		},
+		[],
+	);
+
+	const handleBackupImportModeChange = useCallback((mode: BackupImportMode) => {
+		setBackupImportMode(mode);
+	}, []);
+
+	const handleBackupImportFileChange = useCallback((file: File | null) => {
+		setBackupImportFile(file);
+	}, []);
+
+	const handleApplyRecommendedConfig = useCallback(() => {
+		setSettingsForm((prev) => ({
+			...buildRecommendedSettingsForm(prev.admin_password),
+			pricing_sync_enabled: true,
+			pricing_sync_schedule_time: prev.pricing_sync_schedule_time || "04:40",
+			pricing_sync_sources:
+				prev.pricing_sync_sources.length > 0
+					? prev.pricing_sync_sources
+					: initialSettingsForm.pricing_sync_sources,
+			pricing_default_markup: prev.pricing_default_markup || "1",
+			pricing_currency: prev.pricing_currency || "CNY",
+			pricing_usd_cny_rate: prev.pricing_usd_cny_rate || "7.2",
+		}));
+		setBackupSettings((prev) => ({
+			...prev,
+			enabled: true,
+			schedule_time: "04:20",
+			sync_mode: "push",
+			conflict_policy: "local_wins",
+			import_mode: "merge",
+			keep_versions: 30,
+			webdav_path: prev.webdav_path.trim() || "api-worker-backup",
+		}));
+		pushNotice("info", "已应用推荐配置，请点击保存设置生效。");
+	}, [pushNotice]);
+
+	const handleTokenFormChange = useCallback((patch: Partial<TokenForm>) => {
+		setTokenForm((prev) => ({ ...prev, ...patch }));
+	}, []);
+
+	const handleSiteSearchChange = useCallback((next: string) => {
+		setSiteSearch(next);
+	}, []);
+
+	const handleSiteSortChange = useCallback((next: SiteSortState) => {
+		setSiteSort(next);
+	}, []);
+
+	const handleTokenPageChange = useCallback((next: number) => {
+		setTokenPage(next);
+	}, []);
+
+	const handleTokenPageSizeChange = useCallback((next: number) => {
+		persistPageSizePref("pageSize:tokens", next);
+		setTokenPageSize(next);
+		setTokenPage(1);
+	}, []);
+
+	const handleUsagePageChange = useCallback(
+		async (next: number) => {
+			if (next === usagePage) {
+				return;
+			}
+			const actionKey = buildActionKey("usage:load");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			setUsagePage(next);
+			try {
+				await Promise.all([loadSettings(), loadUsage({ page: next })]);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			endAction,
+			isActionPending,
+			loadSettings,
+			loadUsage,
+			pushNotice,
+			startAction,
+			usagePage,
+		],
+	);
+
+	const handleUsagePageSizeChange = useCallback(
+		async (next: number) => {
+			const actionKey = buildActionKey("usage:load");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			persistPageSizePref("pageSize:usage", next);
+			setUsagePageSize(next);
+			setUsagePage(1);
+			try {
+				await Promise.all([
+					loadSettings(),
+					loadUsage({ page: 1, pageSize: next }),
+				]);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			endAction,
+			isActionPending,
+			loadSettings,
+			loadUsage,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleUsageFiltersChange = useCallback((patch: Partial<UsageQuery>) => {
+		setUsageFilters((prev) => ({ ...prev, ...patch }));
+	}, []);
+
+	const handleUsageSearch = useCallback(async () => {
+		const actionKey = buildActionKey("usage:load");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		const nextQuery = {
+			channel_ids: usageFilters.channel_ids.filter(Boolean),
+			token_ids: usageFilters.token_ids.filter(Boolean),
+			models: usageFilters.models.filter(Boolean),
+			statuses: usageFilters.statuses.filter((value) => /^\d+$/.test(value)),
+			from: usageFilters.from.trim(),
+			to: usageFilters.to.trim(),
+		};
+		startAction(actionKey);
+		setUsageQuery(nextQuery);
+		setUsagePage(1);
+		setUsageFilters(nextQuery);
+		try {
+			await Promise.all([
+				loadSettings(),
+				loadUsage({ page: 1, query: nextQuery }),
+			]);
+		} catch (error) {
+			await loadSites().catch(() => undefined);
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		endAction,
+		isActionPending,
+		loadSettings,
+		loadUsage,
+		pushNotice,
+		startAction,
+		usageFilters.channel_ids,
+		usageFilters.from,
+		usageFilters.models,
+		usageFilters.statuses,
+		usageFilters.token_ids,
+		usageFilters.to,
+	]);
+
+	const handleUsageClear = useCallback(async () => {
+		const actionKey = buildActionKey("usage:load");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		setUsageFilters(initialUsageQuery);
+		setUsageQuery(initialUsageQuery);
+		setUsagePage(1);
+		try {
+			await Promise.all([
+				loadSettings(),
+				loadUsage({ page: 1, query: initialUsageQuery }),
+			]);
+		} catch (error) {
+			await loadSites().catch(() => undefined);
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		endAction,
+		isActionPending,
+		loadSettings,
+		loadUsage,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleTabChange = useCallback(
+		(tabId: TabId) => {
+			const nextPath = tabToPath[tabId];
+			const normalized = normalizePath(window.location.pathname);
+			if (normalized !== nextPath) {
+				history.pushState(null, "", nextPath);
+			}
+			dismissNotice();
+			setActiveTab(tabId);
+		},
+		[dismissNotice],
+	);
+
+	const closeSiteModal = useCallback(() => {
+		setEditingSite(null);
+		setSiteModelPreviewBySiteId({});
+		setSiteForm({ ...initialSiteForm });
+		setSiteModalOpen(false);
+	}, []);
+
+	const openSiteCreate = useCallback(() => {
+		setEditingSite(null);
+		setSiteModelPreviewBySiteId({});
+		setSiteForm({ ...initialSiteForm });
+		setSiteModalOpen(true);
+		dismissNotice();
+	}, [dismissNotice]);
+
+	const openTokenCreate = useCallback(() => {
+		setEditingToken(null);
+		setTokenForm({ ...initialTokenForm });
+		setTokenModalOpen(true);
+		dismissNotice();
+	}, [dismissNotice]);
+
+	const startSiteEdit = useCallback(
+		(site: Site) => {
+			setEditingSite(site);
+			setSiteModelPreviewBySiteId({});
+			const callTokens =
+				site.call_tokens && site.call_tokens.length > 0
+					? site.call_tokens
+					: site.api_key
+						? [
+								{
+									id: "",
+									name: "主调用令牌",
+									api_key: site.api_key,
+									priority: 0,
+								},
+							]
+						: [];
+			const tokenForms =
+				callTokens.length > 0
+					? callTokens.map((token) => ({
+							id: token.id,
+							name: token.name,
+							api_key: token.api_key,
+							priority: token.priority,
+						}))
+					: [
+							{
+								name: "主调用令牌",
+								api_key: "",
+								priority: 0,
+							},
+						];
+			setSiteForm({
+				name: site.name ?? "",
+				base_url: site.base_url ?? "",
+				weight: site.weight ?? 1,
+				status: site.status ?? "active",
+				site_type: site.site_type ?? "new-api",
+				request_entry_path: site.request_entry_path ?? "",
+				request_entry_format:
+					site.request_entry_format &&
+					isRequestEntryFormatAllowedForSiteType(
+						site.site_type ?? "new-api",
+						site.request_entry_format,
+					)
+						? site.request_entry_format
+						: "",
+				checkin_url: site.checkin_url ?? "",
+				system_token: site.system_token ?? "",
+				system_userid: site.system_userid ?? "",
+				checkin_enabled: Boolean(site.checkin_enabled ?? false),
+				call_tokens: tokenForms,
+			});
+			setSiteModalOpen(true);
+			dismissNotice();
+		},
+		[dismissNotice],
+	);
+
+	const closeTokenModal = useCallback(() => {
+		setTokenModalOpen(false);
+		setEditingToken(null);
+		setTokenForm({ ...initialTokenForm });
+	}, []);
+
+	const openTokenEdit = useCallback(
+		(tokenItem: Token) => {
+			setEditingToken(tokenItem);
+			setTokenForm({
+				name: tokenItem.name ?? "",
+				quota_total:
+					tokenItem.quota_total === null || tokenItem.quota_total === undefined
+						? ""
+						: String(tokenItem.quota_total),
+				status: tokenItem.status ?? "active",
+				expires_at: toChinaDateTimeInput(tokenItem.expires_at ?? null),
+				allowed_channels: tokenItem.allowed_channels ?? [],
+			});
+			setTokenModalOpen(true);
+			dismissNotice();
+		},
+		[dismissNotice],
+	);
+
+	const openVerificationResult = useCallback(
+		(title: string, result: SiteVerificationResult) => {
+			setSiteVerificationDialog({ title, result });
+		},
+		[],
+	);
+
+	const storeSiteTaskReport = useCallback((report: SiteTaskResultState) => {
+		if (!report) {
+			return;
+		}
+		setSiteTaskReports((prev) => ({
+			...prev,
+			[report.kind]: report,
+		}));
+	}, []);
+
+	const syncRefreshTaskItem = useCallback(
+		(item: SiteChannelRefreshBatchReport["items"][number], runsAt: string) => {
+			setSiteTaskReports((prev) => {
+				const current = prev["refresh-active"];
+				const nextItems =
+					current?.kind === "refresh-active"
+						? [
+								item,
+								...current.report.items.filter(
+									(existing) => existing.site_id !== item.site_id,
+								),
+							]
+						: [item];
+				const success = nextItems.filter(
+					(entry) => entry.status === "success",
+				).length;
+				const warning = nextItems.filter(
+					(entry) => entry.status === "warning",
+				).length;
+				return {
+					...prev,
+					"refresh-active": {
+						kind: "refresh-active",
+						status: "completed",
+						runs_at: runsAt,
+						started_at: current?.started_at ?? runsAt,
+						finished_at: runsAt,
+						progress: {
+							total: nextItems.length,
+							completed: nextItems.length,
+							success,
+							warning,
+							failed: nextItems.length - success - warning,
+							skipped: 0,
+							current_site_id: null,
+							current_site_name: null,
+							updated_at: runsAt,
+						},
+						error_message: null,
+						report: {
+							summary: {
+								total: nextItems.length,
+								success,
+								warning,
+								failed: nextItems.length - success - warning,
+							},
+							items: nextItems,
+							runs_at: runsAt,
+						},
+					},
+				};
+			});
+		},
+		[],
+	);
+
+	const handleSiteVerify = useCallback(
+		async (id: string) => {
+			const actionKey = buildActionKey("site:verify", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<SiteVerificationResult>(
+					`/api/sites/${id}/verify`,
+					{
+						method: "POST",
+					},
+				);
+				await Promise.all([loadSites(), loadModels()]);
+				openVerificationResult("站点验证结果", result);
+				pushNotice(
+					result.verdict === "serving" || result.verdict === "recoverable"
+						? "success"
+						: result.verdict === "degraded"
+							? "warning"
+							: "error",
+					result.message,
+				);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			openVerificationResult,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleSiteVerifyAll = useCallback(async () => {
+		const actionKey = buildActionKey("site:verifyAll");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		if (data.sites.length === 0) {
+			pushNotice("warning", "暂无站点可验证");
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"verify-active",
+					data.sites.filter((site) => site.status === "active").length,
+					startedAt,
+				),
+			);
+			const report = await apiFetch<SiteVerificationBatchReport>(
+				"/api/sites/verify-batch",
+				{
+					method: "POST",
+				},
+			);
+			await Promise.all([loadSites(), loadModels()]);
+			storeSiteTaskReport({
+				kind: "verify-active",
+				status: "completed",
+				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.serving,
+					warning: report.summary.degraded,
+					failed: report.summary.failed,
+					skipped: report.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
+				report,
+			});
+			const summary = report.summary;
+			if (summary.total === 0) {
+				pushNotice("info", "当前没有启用渠道可检查");
+				return;
+			}
+			pushNotice(
+				summary.failed > 0 || summary.not_recoverable > 0
+					? "warning"
+					: "success",
+				`检查完成：正常 ${summary.serving}，异常 ${summary.degraded + summary.failed}。`,
+			);
+		} catch (error) {
+			await loadSites().catch(() => undefined);
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		data.sites,
+		endAction,
+		isActionPending,
+		loadModels,
+		loadSites,
+		pushNotice,
+		startAction,
+		storeSiteTaskReport,
+	]);
+
+	const handleSiteRecoveryEvaluate = useCallback(async () => {
+		const actionKey = buildActionKey("site:recoveryEvaluate");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"verify-disabled",
+					data.sites.filter((site) => site.status === "disabled").length,
+					startedAt,
+				),
+			);
+			const report = await apiFetch<SiteVerificationBatchReport>(
+				"/api/sites/recovery-evaluate",
+				{
+					method: "POST",
+				},
+			);
+			await Promise.all([loadSites(), loadModels()]);
+			if (report.summary.total === 0) {
+				pushNotice("info", "当前没有已禁用站点需要评估恢复");
+				return;
+			}
+			storeSiteTaskReport({
+				kind: "verify-disabled",
+				status: "completed",
+				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.recoverable,
+					warning: 0,
+					failed: report.summary.not_recoverable + report.summary.failed,
+					skipped: report.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
+				report,
+			});
+			pushNotice(
+				report.summary.recoverable > 0 ? "success" : "warning",
+				`检查完成：恢复 ${report.summary.recoverable}，未恢复 ${report.summary.not_recoverable + report.summary.failed}。`,
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		data.sites,
+		endAction,
+		isActionPending,
+		loadModels,
+		loadSites,
+		pushNotice,
+		startAction,
+		storeSiteTaskReport,
+	]);
+
+	const handleSiteSubmit = useCallback(
+		async (event: Event) => {
+			event.preventDefault();
+			const actionKey = buildActionKey("site:submit");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			const siteName = siteForm.name.trim();
+			const normalizedName = siteName.toLowerCase();
+			const nameExists = data.sites.some(
+				(site) =>
+					site.name.trim().toLowerCase() === normalizedName &&
+					site.id !== editingSite?.id,
+			);
+			if (nameExists) {
+				pushNotice("warning", "站点名称已存在，请使用其他名称");
+				return;
+			}
+			const baseUrlValue = siteForm.base_url.trim();
+			if (!baseUrlValue && !getDefaultBaseUrlForSiteType(siteForm.site_type)) {
+				pushNotice("warning", "基础 URL 不能为空");
+				return;
+			}
+			if (
+				siteForm.request_entry_format &&
+				!isRequestEntryFormatAllowedForSiteType(
+					siteForm.site_type,
+					siteForm.request_entry_format,
+				)
+			) {
+				pushNotice("warning", "当前站点类型不支持所选请求格式");
+				return;
+			}
+			const callTokens = siteForm.call_tokens
+				.map((token, index) => ({
+					id: token.id,
+					name: token.name.trim() || `调用令牌${index + 1}`,
+					api_key: token.api_key.trim(),
+					priority: index,
+				}))
+				.filter((token) => token.api_key.length > 0);
+			if (callTokens.length === 0) {
+				pushNotice("warning", "至少填写一个调用令牌");
+				return;
+			}
+			if (
+				supportsSiteCheckin(siteForm.site_type) &&
+				siteForm.checkin_enabled &&
+				(!siteForm.system_token.trim() || !siteForm.system_userid.trim())
+			) {
+				pushNotice("warning", "启用签到需要填写系统令牌与 User ID");
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const body = {
+					name: siteName,
+					base_url: baseUrlValue,
+					weight: Number(siteForm.weight),
+					status: siteForm.status,
+					site_type: siteForm.site_type,
+					request_entry_path: siteForm.request_entry_path.trim() || null,
+					request_entry_format: siteForm.request_entry_format || null,
+					system_token: siteForm.system_token.trim(),
+					system_userid: siteForm.system_userid.trim(),
+					checkin_url: siteForm.checkin_url.trim() || null,
+					checkin_enabled: siteForm.checkin_enabled,
+					call_tokens: callTokens,
+				};
+				let siteId = editingSite?.id ?? null;
+				let actionLabel = "创建";
+				if (editingSite) {
+					await apiFetch(`/api/sites/${editingSite.id}`, {
+						method: "PATCH",
+						body: JSON.stringify(body),
+					});
+					actionLabel = "更新";
+				} else {
+					const created = await apiFetch<{ id: string }>("/api/sites", {
+						method: "POST",
+						body: JSON.stringify(body),
+					});
+					siteId = created.id;
+				}
+				closeSiteModal();
+				await Promise.all([loadSites(), loadModels()]);
+				if (
+					siteId &&
+					shouldVerifyAfterSiteSubmit(editingSite ? "edit" : "create")
+				) {
+					pushNotice("info", `站点已${actionLabel}，正在自动验证...`);
+					await handleSiteVerify(siteId);
+				} else {
+					pushNotice("success", `站点已${actionLabel}`);
+				}
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			closeSiteModal,
+			data.sites,
+			editingSite,
+			endAction,
+			isActionPending,
+			loadSites,
+			handleSiteVerify,
+			pushNotice,
+			siteForm,
+			startAction,
+		],
+	);
+
+	const handleTokenSubmit = useCallback(
+		async (event: Event) => {
+			event.preventDefault();
+			const actionKey = buildActionKey("token:submit");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const name = tokenForm.name.trim();
+				if (!name) {
+					pushNotice("warning", "请输入令牌名称");
+					return;
+				}
+				const quotaInput = tokenForm.quota_total.trim();
+				const quotaTotal = quotaInput.length === 0 ? null : Number(quotaInput);
+				if (quotaInput.length > 0 && Number.isNaN(quotaTotal)) {
+					pushNotice("warning", "额度需为数字");
+					return;
+				}
+				const expiresAtInput = tokenForm.expires_at.trim();
+				const expiresAtIso = toChinaIsoFromInput(expiresAtInput);
+				if (expiresAtInput && !expiresAtIso) {
+					pushNotice("warning", "过期时间格式无效");
+					return;
+				}
+				const allowedChannels = tokenForm.allowed_channels.filter(Boolean);
+				if (editingToken) {
+					await apiFetch(`/api/tokens/${editingToken.id}`, {
+						method: "PATCH",
+						body: JSON.stringify({
+							name,
+							quota_total: quotaTotal,
+							status: tokenForm.status,
+							expires_at: expiresAtIso,
+							allowed_channels: allowedChannels,
+						}),
+					});
+					pushNotice("success", "令牌已更新");
+					setTokenModalOpen(false);
+					setEditingToken(null);
+					setTokenForm({ ...initialTokenForm });
+					await loadTokens();
+					return;
+				}
+
+				const result = await apiFetch<{ token: string }>("/api/tokens", {
+					method: "POST",
+					body: JSON.stringify({
+						name,
+						quota_total: quotaTotal,
+						status: tokenForm.status,
+						expires_at: expiresAtIso,
+						allowed_channels: allowedChannels,
+					}),
+				});
+				let message = `新令牌: ${result.token}`;
+				try {
+					await navigator.clipboard.writeText(result.token);
+					message = "新令牌已复制到剪贴板，请妥善保存。";
+				} catch (_clipboardError) {
+					// keep token in message if clipboard fails
+				}
+				pushNotice("success", message);
+				setTokenModalOpen(false);
+				setTokenForm({ ...initialTokenForm });
+				setTokenPage(1);
+				await loadTokens();
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			editingToken,
+			endAction,
+			initialTokenForm,
+			isActionPending,
+			loadTokens,
+			pushNotice,
+			startAction,
+			tokenForm.expires_at,
+			tokenForm.allowed_channels,
+			tokenForm.name,
+			tokenForm.quota_total,
+			tokenForm.status,
+		],
+	);
+
+	const handleSettingsSubmit = useCallback(
+		async (event: Event) => {
+			event.preventDefault();
+			const actionKey = buildActionKey("settings:submit");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			const retention = Number(settingsForm.log_retention_days);
+			const sessionTtlHours = Number(settingsForm.session_ttl_hours);
+			const failureCooldownMinutes = Number(
+				settingsForm.proxy_model_failure_cooldown_minutes,
+			);
+			const failureCooldownThreshold = Number(
+				settingsForm.proxy_model_failure_cooldown_threshold,
+			);
+			const channelDisableErrorThreshold = Number(
+				settingsForm.channel_disable_error_threshold,
+			);
+			const channelDisableErrorCodeMinutes = Number(
+				settingsForm.channel_disable_error_code_minutes,
+			);
+			const upstreamTimeoutMs = Number(settingsForm.proxy_upstream_timeout_ms);
+			const retryMaxRetries = Number(settingsForm.proxy_retry_max_retries);
+			const retrySleepMs = Number(settingsForm.proxy_retry_sleep_ms);
+			const channelRefreshScheduleTime =
+				settingsForm.channel_refresh_schedule_time.trim();
+			const channelRecoveryProbeScheduleTime =
+				settingsForm.channel_recovery_probe_schedule_time.trim();
+			const normalizeErrorCodeList = (value: string[]): string[] => {
+				return Array.from(
+					new Set(
+						value.map((item) => String(item ?? "").trim()).filter(Boolean),
+					),
+				);
+			};
+			const retrySleepErrorCodes = normalizeErrorCodeList(
+				settingsForm.proxy_retry_sleep_error_codes,
+			);
+			const retryReturnErrorCodes = normalizeErrorCodeList(
+				settingsForm.proxy_retry_return_error_codes,
+			);
+			const channelDisableErrorCodes = normalizeErrorCodeList(
+				settingsForm.channel_disable_error_codes,
+			);
+			const streamUsageMode = settingsForm.proxy_stream_usage_mode
+				.trim()
+				.toLowerCase();
+			const shouldValidateDeepStreamParse = streamUsageMode !== "off";
+			const streamUsageMaxParsers = Number(
+				settingsForm.proxy_stream_usage_max_parsers,
+			);
+			const streamUsageParseTimeoutMs = Number(
+				settingsForm.proxy_stream_usage_parse_timeout_ms,
+			);
+			const responsesAffinityTtlSeconds = Number(
+				settingsForm.proxy_responses_affinity_ttl_seconds,
+			);
+			const streamOptionsCapabilityTtlSeconds = Number(
+				settingsForm.proxy_stream_options_capability_ttl_seconds,
+			);
+			const attemptWorkerFallbackThreshold = Number(
+				settingsForm.proxy_attempt_worker_fallback_threshold,
+			);
+			const largeRequestOffloadThresholdBytes = Number(
+				settingsForm.proxy_large_request_offload_threshold_bytes,
+			);
+			const siteTaskConcurrency = Number(settingsForm.site_task_concurrency);
+			const siteTaskTimeoutMs = Number(settingsForm.site_task_timeout_ms);
+			const siteVerificationModelLimit = Number(
+				settingsForm.site_verification_model_limit,
+			);
+			const pricingScheduleTime =
+				settingsForm.pricing_sync_schedule_time.trim();
+			const pricingMarkup = Number(settingsForm.pricing_default_markup);
+			const pricingUsdCnyRate = Number(settingsForm.pricing_usd_cny_rate);
+			if (
+				Number.isNaN(retention) ||
+				retention < 1 ||
+				Number.isNaN(sessionTtlHours) ||
+				sessionTtlHours < 1
+			) {
+				pushNotice("warning", "请填写有效的日志保留天数与会话时长");
+				return;
+			}
+			if (Number.isNaN(failureCooldownMinutes) || failureCooldownMinutes < 0) {
+				pushNotice("warning", "失败冷却时长需为非负整数");
+				return;
+			}
+			if (
+				Number.isNaN(failureCooldownThreshold) ||
+				failureCooldownThreshold < 1 ||
+				!Number.isInteger(failureCooldownThreshold)
+			) {
+				pushNotice("warning", "连续失败次数阈值需为正整数");
+				return;
+			}
+			if (
+				Number.isNaN(channelDisableErrorThreshold) ||
+				channelDisableErrorThreshold < 1 ||
+				!Number.isInteger(channelDisableErrorThreshold)
+			) {
+				pushNotice("warning", "渠道禁用阈值需为正整数");
+				return;
+			}
+			if (
+				Number.isNaN(channelDisableErrorCodeMinutes) ||
+				channelDisableErrorCodeMinutes < 0 ||
+				!Number.isInteger(channelDisableErrorCodeMinutes)
+			) {
+				pushNotice("warning", "命中后禁用时长需为非负整数");
+				return;
+			}
+			if (Number.isNaN(upstreamTimeoutMs) || upstreamTimeoutMs < 0) {
+				pushNotice("warning", "上游超时需为非负整数");
+				return;
+			}
+			if (
+				Number.isNaN(retryMaxRetries) ||
+				retryMaxRetries < 0 ||
+				!Number.isInteger(retryMaxRetries)
+			) {
+				pushNotice("warning", "重发次数需为非负整数");
+				return;
+			}
+			if (
+				Number.isNaN(retrySleepMs) ||
+				retrySleepMs < 0 ||
+				!Number.isInteger(retrySleepMs)
+			) {
+				pushNotice("warning", "统一等待时间需为非负整数");
+				return;
+			}
+			if (!["full", "lite", "off"].includes(streamUsageMode)) {
+				pushNotice("warning", "解析策略需为 FULL / LITE / OFF");
+				return;
+			}
+			if (shouldValidateDeepStreamParse) {
+				if (Number.isNaN(streamUsageMaxParsers) || streamUsageMaxParsers < 0) {
+					pushNotice("warning", "并发上限需为非负整数");
+					return;
+				}
+				if (
+					Number.isNaN(streamUsageParseTimeoutMs) ||
+					streamUsageParseTimeoutMs < 0
+				) {
+					pushNotice("warning", "解析参数需为非负整数");
+					return;
+				}
+			}
+			if (
+				Number.isNaN(responsesAffinityTtlSeconds) ||
+				responsesAffinityTtlSeconds < 60 ||
+				!Number.isInteger(responsesAffinityTtlSeconds)
+			) {
+				pushNotice("warning", "Responses 粘滞 TTL 需为不小于 60 的整数");
+				return;
+			}
+			if (
+				Number.isNaN(streamOptionsCapabilityTtlSeconds) ||
+				streamOptionsCapabilityTtlSeconds < 60 ||
+				!Number.isInteger(streamOptionsCapabilityTtlSeconds)
+			) {
+				pushNotice("warning", "stream_options 能力 TTL 需为不小于 60 的整数");
+				return;
+			}
+			if (
+				Number.isNaN(attemptWorkerFallbackThreshold) ||
+				attemptWorkerFallbackThreshold < 1 ||
+				!Number.isInteger(attemptWorkerFallbackThreshold)
+			) {
+				pushNotice("warning", "调用执行器异常阈值需为正整数");
+				return;
+			}
+			if (
+				Number.isNaN(largeRequestOffloadThresholdBytes) ||
+				largeRequestOffloadThresholdBytes < 0 ||
+				!Number.isInteger(largeRequestOffloadThresholdBytes)
+			) {
+				pushNotice("warning", "大请求下沉阈值需为非负整数");
+				return;
+			}
+			if (
+				Number.isNaN(siteTaskConcurrency) ||
+				siteTaskConcurrency < 1 ||
+				!Number.isInteger(siteTaskConcurrency)
+			) {
+				pushNotice("warning", "站点任务并发需为正整数");
+				return;
+			}
+			if (
+				Number.isNaN(siteTaskTimeoutMs) ||
+				siteTaskTimeoutMs < 1 ||
+				!Number.isInteger(siteTaskTimeoutMs)
+			) {
+				pushNotice("warning", "站点任务超时需为正整数");
+				return;
+			}
+			if (
+				Number.isNaN(siteVerificationModelLimit) ||
+				siteVerificationModelLimit < 1 ||
+				!Number.isInteger(siteVerificationModelLimit)
+			) {
+				pushNotice("warning", "验证最多尝试模型数需为正整数");
+				return;
+			}
+			if (!/^\d{2}:\d{2}$/.test(channelRecoveryProbeScheduleTime)) {
+				pushNotice("warning", "禁用渠道抽测时间需为 HH:mm");
+				return;
+			}
+			if (!/^\d{2}:\d{2}$/.test(channelRefreshScheduleTime)) {
+				pushNotice("warning", "启用渠道更新时间需为 HH:mm");
+				return;
+			}
+			if (!/^\d{2}:\d{2}$/.test(pricingScheduleTime)) {
+				pushNotice("warning", "价格同步时间需为 HH:mm");
+				return;
+			}
+			if (Number.isNaN(pricingMarkup) || pricingMarkup <= 0) {
+				pushNotice("warning", "销售倍率需为大于 0 的数字");
+				return;
+			}
+			if (Number.isNaN(pricingUsdCnyRate) || pricingUsdCnyRate <= 0) {
+				pushNotice("warning", "美元/人民币汇率需为大于 0 的数字");
+				return;
+			}
+			const backupScheduleTime = backupSettings.schedule_time.trim();
+			if (!/^\d{2}:\d{2}$/.test(backupScheduleTime)) {
+				pushNotice("warning", "定时备份时间需为 HH:mm");
+				return;
+			}
+			const backupKeepVersions = Number(backupSettings.keep_versions);
+			if (
+				Number.isNaN(backupKeepVersions) ||
+				backupKeepVersions < 1 ||
+				!Number.isInteger(backupKeepVersions)
+			) {
+				pushNotice("warning", "备份历史保留数量需为正整数");
+				return;
+			}
+			const settingsChanged =
+				JSON.stringify(settingsForm) !== JSON.stringify(settingsFormSnapshot);
+			const backupChanged =
+				JSON.stringify(pickEditableBackupSettings(backupSettings)) !==
+				JSON.stringify(backupSettingsSnapshot);
+			const pricingDisplayChanged = didPricingDisplayConfigChange(
+				settingsForm,
+				settingsFormSnapshot,
+			);
+			if (!settingsChanged && !backupChanged) {
+				return;
+			}
+			startAction(actionKey);
+			const payload: Record<string, unknown> = {
+				log_retention_days: retention,
+				session_ttl_hours: sessionTtlHours,
+				checkin_schedule_time:
+					settingsForm.checkin_schedule_time.trim() || "00:10",
+				channel_refresh_enabled: settingsForm.channel_refresh_enabled,
+				channel_refresh_schedule_time: channelRefreshScheduleTime,
+				channel_recovery_probe_enabled:
+					settingsForm.channel_recovery_probe_enabled,
+				channel_recovery_probe_schedule_time: channelRecoveryProbeScheduleTime,
+				proxy_model_failure_cooldown_minutes: failureCooldownMinutes,
+				proxy_model_failure_cooldown_threshold: failureCooldownThreshold,
+				channel_disable_error_threshold: channelDisableErrorThreshold,
+				channel_disable_error_code_minutes: channelDisableErrorCodeMinutes,
+				proxy_upstream_timeout_ms: upstreamTimeoutMs,
+				proxy_retry_max_retries: retryMaxRetries,
+				proxy_retry_sleep_ms: retrySleepMs,
+				proxy_retry_sleep_error_codes: retrySleepErrorCodes,
+				proxy_retry_return_error_codes: retryReturnErrorCodes,
+				channel_disable_error_codes: channelDisableErrorCodes,
+				proxy_zero_completion_as_error_enabled:
+					settingsForm.proxy_zero_completion_as_error_enabled,
+				proxy_stream_usage_mode: streamUsageMode,
+				proxy_stream_usage_max_parsers: streamUsageMaxParsers,
+				proxy_stream_usage_parse_timeout_ms: streamUsageParseTimeoutMs,
+				proxy_responses_affinity_ttl_seconds: responsesAffinityTtlSeconds,
+				proxy_stream_options_capability_ttl_seconds:
+					streamOptionsCapabilityTtlSeconds,
+				proxy_attempt_worker_fallback_enabled:
+					settingsForm.proxy_attempt_worker_fallback_enabled,
+				proxy_attempt_worker_fallback_threshold: attemptWorkerFallbackThreshold,
+				proxy_large_request_offload_threshold_bytes:
+					largeRequestOffloadThresholdBytes,
+				site_task_concurrency: siteTaskConcurrency,
+				site_task_timeout_ms: siteTaskTimeoutMs,
+				site_task_fallback_enabled: settingsForm.site_task_fallback_enabled,
+				site_verification_model_limit: siteVerificationModelLimit,
+				pricing_sync_enabled: settingsForm.pricing_sync_enabled,
+				pricing_sync_schedule_time: pricingScheduleTime,
+				pricing_sync_sources: normalizeErrorCodeList(
+					settingsForm.pricing_sync_sources,
+				),
+				pricing_default_markup: pricingMarkup,
+				pricing_currency: settingsForm.pricing_currency,
+				pricing_usd_cny_rate: pricingUsdCnyRate,
+			};
+			const password = settingsForm.admin_password.trim();
+			if (password) {
+				payload.admin_password = password;
+			}
+			try {
+				if (backupChanged) {
+					await apiFetch("/api/backup/sync-config", {
+						method: "PUT",
+						body: JSON.stringify({
+							enabled: backupSettings.enabled,
+							schedule_time: backupScheduleTime,
+							sync_mode: backupSettings.sync_mode,
+							conflict_policy: backupSettings.conflict_policy,
+							import_mode: backupSettings.import_mode,
+							webdav_url: backupSettings.webdav_url.trim(),
+							webdav_username: backupSettings.webdav_username.trim(),
+							webdav_password: backupSettings.webdav_password.trim(),
+							webdav_path: backupSettings.webdav_path.trim(),
+							keep_versions: backupKeepVersions,
+						}),
+					});
+				}
+				if (settingsChanged) {
+					await apiFetch("/api/settings", {
+						method: "PUT",
+						body: JSON.stringify(payload),
+					});
+				}
+				await Promise.all(
+					pricingDisplayChanged
+						? [
+								refreshPricingDisplayData(),
+								loadRetryErrorCodes(),
+								loadBackupSettings(),
+							]
+						: [loadSettings(), loadRetryErrorCodes(), loadBackupSettings()],
+				);
+				setSettingsForm((prev) => ({ ...prev, admin_password: "" }));
+				pushNotice("success", "设置已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			backupSettings,
+			endAction,
+			isActionPending,
+			loadBackupSettings,
+			loadRetryErrorCodes,
+			loadSettings,
+			pushNotice,
+			refreshPricingDisplayData,
+			settingsForm,
+			settingsFormSnapshot,
+			startAction,
+			backupSettingsSnapshot,
+		],
+	);
+
+	const handleBackupExport = useCallback(async () => {
+		const actionKey = buildActionKey("backup:export");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const payload = await apiFetch<unknown>("/api/backup/export");
+			const exportedAt = new Date()
+				.toISOString()
+				.replace(/[-:]/g, "")
+				.replace(/\..*$/, "")
+				.replace("T", "-");
+			const blob = new Blob([JSON.stringify(payload, null, 2)], {
+				type: "application/json;charset=utf-8",
+			});
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `api-worker-backup-${exportedAt}.json`;
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			URL.revokeObjectURL(url);
+			pushNotice("success", "备份已导出");
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [apiFetch, endAction, isActionPending, pushNotice, startAction]);
+
+	const handleBackupImport = useCallback(async () => {
+		const actionKey = buildActionKey("backup:import");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		if (!backupImportFile) {
+			pushNotice("warning", "请先选择备份文件");
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const text = await backupImportFile.text();
+			const payload = JSON.parse(text) as unknown;
+			const result = await apiFetch<BackupImportResult>("/api/backup/import", {
+				method: "POST",
+				body: JSON.stringify({
+					payload,
+					mode: backupImportMode,
+					dry_run: false,
+				}),
+			});
+			await Promise.all([
+				loadSites(),
+				loadTokens(),
+				loadSettings(),
+				loadBackupSettings(),
+				loadRetryErrorCodes(),
+			]);
+			setBackupImportFile(null);
+			pushNotice(
+				"success",
+				`导入完成：站点 +${result.summary.sites.created}/${result.summary.sites.updated}，令牌 +${result.summary.tokens.created}/${result.summary.tokens.updated}`,
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		backupImportFile,
+		backupImportMode,
+		endAction,
+		isActionPending,
+		loadBackupSettings,
+		loadRetryErrorCodes,
+		loadSettings,
+		loadSites,
+		loadTokens,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleBackupSyncNow = useCallback(
+		async (action: BackupManualAction) => {
+			const actionKey = buildActionKey(`backup:${action}`);
+			if (
+				isActionPending(actionKey) ||
+				isActionPending(buildActionKey("backup:push")) ||
+				isActionPending(buildActionKey("backup:pull"))
+			) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<BackupSyncResult>(
+					"/api/backup/sync-now",
+					{
+						method: "POST",
+						body: JSON.stringify({ action }),
+					},
+				);
+				await loadBackupSettings();
+				if (result.action === "pull") {
+					await Promise.all([
+						loadSites(),
+						loadTokens(),
+						loadSettings(),
+						loadRetryErrorCodes(),
+					]);
+				}
+				pushNotice("success", action === "push" ? "上传完成" : "下载完成");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadBackupSettings,
+			loadRetryErrorCodes,
+			loadSettings,
+			loadSites,
+			loadTokens,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleBackupPushNow = useCallback(async () => {
+		await handleBackupSyncNow("push");
+	}, [handleBackupSyncNow]);
+
+	const handleBackupPullNow = useCallback(async () => {
+		await handleBackupSyncNow("pull");
+	}, [handleBackupSyncNow]);
+
+	const handleSiteDelete = useCallback(
+		async (id: string) => {
+			const actionKey = buildActionKey("site:delete", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/sites/${id}`, { method: "DELETE" });
+				await Promise.all([loadSites(), loadModels()]);
+				pushNotice("success", "站点已删除");
+				if (editingSite?.id === id) {
+					closeSiteModal();
+				}
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			closeSiteModal,
+			editingSite,
+			endAction,
+			isActionPending,
+			loadSites,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const requestSiteDelete = useCallback(
+		(site: Site) => {
+			openConfirm({
+				title: "删除站点",
+				message: `确定删除“${site.name || "该站点"}”吗？此操作不可恢复。`,
+				confirmLabel: "删除站点",
+				tone: "error",
+				onConfirm: () => handleSiteDelete(site.id),
+			});
+		},
+		[handleSiteDelete, openConfirm],
+	);
+
+	const removeSitesFromVerifyDisabledReport = useCallback(
+		(siteIds: string[]) => {
+			if (siteIds.length === 0) {
+				return;
+			}
+			const removedIds = new Set(siteIds);
+			setSiteTaskReports((prev) => {
+				const current = prev["verify-disabled"];
+				if (!current || current.kind !== "verify-disabled") {
+					return prev;
+				}
+				const nextItems = current.report.items.filter(
+					(item) => !removedIds.has(item.site_id),
+				);
+				const summary = summarizeVerificationResults(nextItems);
+				return {
+					...prev,
+					"verify-disabled": {
+						...current,
+						report: {
+							...current.report,
+							items: nextItems,
+							summary,
+						},
+						progress: {
+							...current.progress,
+							total: nextItems.length,
+							completed: nextItems.length,
+							success: summary.recoverable,
+							warning: 0,
+							failed: summary.not_recoverable + summary.failed,
+							skipped: summary.skipped,
+							current_site_id: null,
+							current_site_name: null,
+							updated_at: current.runs_at,
+						},
+					},
+				};
+			});
+		},
+		[],
+	);
+
+	const handleCleanupDisabledSites = useCallback(
+		async (
+			items: SiteVerificationResult[],
+			actionKey: string,
+			successMessage: (count: number) => string,
+		) => {
+			const uniqueItems = Array.from(
+				new Map(items.map((item) => [item.site_id, item])).values(),
+			);
+			if (uniqueItems.length === 0) {
+				pushNotice("info", "当前没有可清理的停用站点");
+				return;
+			}
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const settled = await Promise.allSettled(
+					uniqueItems.map(async (item) => {
+						await apiFetch(`/api/sites/${item.site_id}`, { method: "DELETE" });
+						return item.site_id;
+					}),
+				);
+				const successIds = settled
+					.filter(
+						(item): item is PromiseFulfilledResult<string> =>
+							item.status === "fulfilled",
+					)
+					.map((item) => item.value);
+				const failedCount = settled.length - successIds.length;
+				await Promise.all([loadSites(), loadModels()]);
+				removeSitesFromVerifyDisabledReport(successIds);
+				if (editingSite && successIds.includes(editingSite.id)) {
+					closeSiteModal();
+				}
+				if (failedCount > 0) {
+					pushNotice(
+						"warning",
+						`停用站点清理完成，成功 ${successIds.length} 个，失败 ${failedCount} 个。`,
+					);
+					return;
+				}
+				pushNotice("success", successMessage(successIds.length));
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			closeSiteModal,
+			editingSite,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			pushNotice,
+			removeSitesFromVerifyDisabledReport,
+			startAction,
+		],
+	);
+
+	const requestCleanupDisabledSite = useCallback(
+		(site: SiteVerificationResult) => {
+			openConfirm({
+				title: "清理停用站点",
+				message: `确定删除“${site.site_name || "该站点"}”吗？此操作不可恢复。`,
+				confirmLabel: "清理站点",
+				tone: "error",
+				onConfirm: () =>
+					handleCleanupDisabledSites(
+						[site],
+						buildActionKey("site:cleanupDisabled", site.site_id),
+						() => `已清理停用站点：${site.site_name}`,
+					),
+			});
+		},
+		[handleCleanupDisabledSites, openConfirm],
+	);
+
+	const requestCleanupDisabledGroup = useCallback(
+		(group: RecoveryCleanupGroup) => {
+			const groupActionKey = buildActionKey(
+				"site:cleanupDisabledGroup",
+				group.id,
+			);
+			openConfirm({
+				title: "删除当前分组",
+				message: `将删除当前分组“${group.title}”中的停用站点，此操作不可恢复。`,
+				previewSummary: `当前分组共有 ${group.items.length} 个可清理站点`,
+				previewItems: group.items.map((item) => ({
+					id: item.site_id,
+					title: item.site_name,
+					detail: getPrimaryVerificationIssue(item),
+					actionLabel: "单独清理",
+					actionKey: buildActionKey("site:cleanupDisabled", item.site_id),
+					onAction: async () => {
+						await handleCleanupDisabledSites(
+							[item],
+							buildActionKey("site:cleanupDisabled", item.site_id),
+							() => `已清理停用站点：${item.site_name}`,
+						);
+						setConfirmState(null);
+					},
+				})),
+				previewQuestion: "确认删除当前分组全部停用站点吗？",
+				confirmLabel: "删除当前分组",
+				tone: "error",
+				onConfirm: () =>
+					handleCleanupDisabledSites(
+						group.items,
+						groupActionKey,
+						(count) => `已清理 ${count} 个停用站点。`,
+					),
+			});
+		},
+		[handleCleanupDisabledSites, openConfirm],
+	);
+
+	const requestCleanupDisabledAll = useCallback(
+		(groups: RecoveryCleanupGroup[]) => {
+			const allItems = groups.flatMap((group) => group.items);
+			const uniqueItems = Array.from(
+				new Map(allItems.map((item) => [item.site_id, item])).values(),
+			);
+			if (uniqueItems.length === 0) {
+				pushNotice("info", "当前没有可清理的停用站点");
+				return;
+			}
+			const actionKey = buildActionKey("site:cleanupDisabledAll");
+			openConfirm({
+				title: "一键删除全部停用站点",
+				message: "将删除本次检查中所有仍未恢复的停用站点，此操作不可恢复。",
+				previewSummary: `当前共有 ${uniqueItems.length} 个可清理站点，来自 ${groups.length} 个分组`,
+				previewItems: groups.flatMap((group) =>
+					group.items.map((item) => ({
+						id: item.site_id,
+						title: item.site_name,
+						detail: `${group.title} · ${getPrimaryVerificationIssue(item)}`,
+						actionLabel: "单独清理",
+						actionKey: buildActionKey("site:cleanupDisabled", item.site_id),
+						onAction: async () => {
+							await handleCleanupDisabledSites(
+								[item],
+								buildActionKey("site:cleanupDisabled", item.site_id),
+								() => `已清理停用站点：${item.site_name}`,
+							);
+							setConfirmState(null);
+						},
+					})),
+				),
+				previewQuestion: "确认删除全部未恢复停用站点吗？",
+				confirmLabel: "一键删除全部",
+				tone: "error",
+				onConfirm: () =>
+					handleCleanupDisabledSites(
+						uniqueItems,
+						actionKey,
+						(count) => `已清理 ${count} 个停用站点。`,
+					),
+			});
+		},
+		[handleCleanupDisabledSites, openConfirm, pushNotice],
+	);
+
+	const handleSiteToggle = useCallback(
+		async (id: string, status: string) => {
+			const actionKey = buildActionKey("site:toggle", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const next = toggleStatus(status);
+				await apiFetch(`/api/sites/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ status: next }),
+				});
+				await loadSites();
+				pushNotice("success", `站点已${next === "active" ? "启用" : "停用"}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[endAction, isActionPending, loadSites, pushNotice, startAction, apiFetch],
+	);
+
+	const handleClearCoolingModel = useCallback(
+		async (siteId: string, model: string) => {
+			const actionKey = buildActionKey(
+				"site:clearCooling",
+				`${siteId}:${model}`,
+			);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/sites/${siteId}/cooling-models/reset`, {
+					method: "POST",
+					body: JSON.stringify({ model }),
+				});
+				await loadSites();
+				pushNotice("success", `已解除模型冷却：${model}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleDisableFailedSite = useCallback(
+		async (site: SiteVerificationResult) => {
+			const actionKey = buildActionKey("site:disableFailed", site.site_id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/sites/${site.site_id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ status: "disabled" }),
+				});
+				await loadSites();
+				setSiteTaskReports((prev) => {
+					const current = prev["verify-active"];
+					if (!current || current.kind !== "verify-active") {
+						return prev;
+					}
+					const nextItems = current.report.items.filter(
+						(item) => item.site_id !== site.site_id,
+					);
+					return {
+						...prev,
+						"verify-active": {
+							...current,
+							report: {
+								...current.report,
+								items: nextItems,
+								summary: summarizeVerificationResults(nextItems),
+							},
+							progress: {
+								...current.progress,
+								total: nextItems.length,
+								completed: nextItems.length,
+								success: summarizeVerificationResults(nextItems).serving,
+								warning: summarizeVerificationResults(nextItems).degraded,
+								failed: summarizeVerificationResults(nextItems).failed,
+								skipped: summarizeVerificationResults(nextItems).skipped,
+								current_site_id: null,
+								current_site_name: null,
+								updated_at: current.runs_at,
+							},
+						},
+					};
+				});
+				pushNotice("success", `已禁用站点：${site.site_name}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleDisableAllFailedSites = useCallback(async () => {
+		const report = siteTaskReports["verify-active"];
+		const failedItems =
+			report?.kind === "verify-active"
+				? report.report.items.filter((item) => item.verdict === "failed")
+				: [];
+		if (!report || failedItems.length === 0) {
+			pushNotice("info", "当前没有可禁用的失败站点");
+			return;
+		}
+		const actionKey = buildActionKey("site:disableFailedAll");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const settled = await Promise.allSettled(
+				failedItems.map(async (item) => {
+					await apiFetch(`/api/sites/${item.site_id}`, {
+						method: "PATCH",
+						body: JSON.stringify({ status: "disabled" }),
+					});
+					return item.site_id;
+				}),
+			);
+			const successIds = settled
+				.filter(
+					(item): item is PromiseFulfilledResult<string> =>
+						item.status === "fulfilled",
+				)
+				.map((item) => item.value);
+			const failedCount = settled.length - successIds.length;
+			await Promise.all([loadSites(), loadModels()]);
+			setSiteTaskReports((prev) => {
+				const current = prev["verify-active"];
+				if (
+					!current ||
+					current.kind !== "verify-active" ||
+					successIds.length === 0
+				) {
+					return prev;
+				}
+				const successSet = new Set(successIds);
+				const nextItems = current.report.items.filter(
+					(item) => !successSet.has(item.site_id),
+				);
+				return {
+					...prev,
+					"verify-active": {
+						...current,
+						report: {
+							...current.report,
+							items: nextItems,
+							summary: summarizeVerificationResults(nextItems),
+						},
+						progress: {
+							...current.progress,
+							total: nextItems.length,
+							completed: nextItems.length,
+							success: summarizeVerificationResults(nextItems).serving,
+							warning: summarizeVerificationResults(nextItems).degraded,
+							failed: summarizeVerificationResults(nextItems).failed,
+							skipped: summarizeVerificationResults(nextItems).skipped,
+							current_site_id: null,
+							current_site_name: null,
+							updated_at: current.runs_at,
+						},
+					},
+				};
+			});
+			if (failedCount > 0) {
+				pushNotice(
+					"warning",
+					`批量禁用完成，成功 ${successIds.length} 个，失败 ${failedCount} 个。`,
+				);
+			} else {
+				pushNotice("success", `已批量禁用 ${successIds.length} 个失败站点。`);
+			}
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadModels,
+		loadSites,
+		pushNotice,
+		startAction,
+		siteTaskReports,
+	]);
+
+	const requestDisableAllFailedSites = useCallback(() => {
+		const report = siteTaskReports["verify-active"];
+		const failedItems =
+			report?.kind === "verify-active"
+				? report.report.items.filter((item) => item.verdict === "failed")
+				: [];
+		if (!report || failedItems.length === 0) {
+			pushNotice("info", "当前没有可禁用的失败站点");
+			return;
+		}
+		const names = failedItems
+			.slice(0, 5)
+			.map((item) => item.site_name)
+			.join("、");
+		const suffix =
+			failedItems.length > 5 ? ` 等 ${failedItems.length} 个站点` : "";
+		openConfirm({
+			title: "批量禁用失败站点",
+			message: `将禁用以下验证失败站点：${names}${suffix}。确认继续吗？`,
+			confirmLabel: "禁用全部失败站点",
+			tone: "error",
+			onConfirm: () => handleDisableAllFailedSites(),
+		});
+	}, [handleDisableAllFailedSites, openConfirm, pushNotice, siteTaskReports]);
+
+	const handleTokenDelete = useCallback(
+		async (id: string) => {
+			const actionKey = buildActionKey("token:delete", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/tokens/${id}`, { method: "DELETE" });
+				await loadTokens();
+				pushNotice("success", "令牌已删除");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[endAction, isActionPending, loadTokens, pushNotice, startAction, apiFetch],
+	);
+
+	const requestTokenDelete = useCallback(
+		(token: Token) => {
+			openConfirm({
+				title: "删除令牌",
+				message: `确定删除“${token.name || "该令牌"}”吗？此操作不可恢复。`,
+				confirmLabel: "删除令牌",
+				tone: "error",
+				onConfirm: () => handleTokenDelete(token.id),
+			});
+		},
+		[handleTokenDelete, openConfirm],
+	);
+
+	const handleTokenReveal = useCallback(
+		async (id: string) => {
+			const actionKey = buildActionKey("token:reveal", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<{ token: string | null }>(
+					`/api/tokens/${id}/reveal`,
+				);
+				if (!result.token) {
+					pushNotice("warning", "未找到令牌");
+					return;
+				}
+				try {
+					await navigator.clipboard.writeText(result.token);
+					pushNotice("success", "令牌已复制到剪贴板。");
+				} catch (_clipboardError) {
+					pushNotice("info", `令牌: ${result.token}`);
+				}
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[endAction, isActionPending, pushNotice, startAction, apiFetch],
+	);
+
+	const handleTokenToggle = useCallback(
+		async (id: string, status: string) => {
+			const actionKey = buildActionKey("token:toggle", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const next = toggleStatus(status);
+				await apiFetch(`/api/tokens/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ status: next }),
+				});
+				await loadTokens();
+				pushNotice("success", `令牌已${next === "active" ? "启用" : "停用"}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[endAction, isActionPending, loadTokens, pushNotice, startAction, apiFetch],
+	);
+
+	const handleCheckinRunSite = useCallback(
+		async (site: Site) => {
+			const actionKey = buildActionKey("site:checkin", site.id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<{
+					result: {
+						id: string;
+						name: string;
+						status: "success" | "failed" | "skipped";
+						message: string;
+						checkin_date?: string | null;
+					};
+					runs_at: string;
+				}>(`/api/sites/${site.id}/checkin`, { method: "POST" });
+				await loadSites();
+				const tone =
+					result.result.status === "failed"
+						? "warning"
+						: result.result.status === "skipped"
+							? "info"
+							: "success";
+				pushNotice(
+					tone,
+					`${site.name || "站点"}：${result.result.message || "签到完成"}`,
+				);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[endAction, isActionPending, loadSites, pushNotice, startAction, apiFetch],
+	);
+
+	const handleCheckinRunAll = useCallback(async () => {
+		const actionKey = buildActionKey("site:checkinAll");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"checkin",
+					data.sites.filter((site) => Boolean(site.checkin_enabled)).length,
+					startedAt,
+				),
+			);
+			const result = await apiFetch<{
+				results: Array<{
+					id: string;
+					name: string;
+					status: "success" | "failed" | "skipped";
+					message: string;
+					checkin_date?: string | null;
+				}>;
+				summary: CheckinSummary;
+				runs_at: string;
+			}>("/api/sites/checkin-all", {
+				method: "POST",
+			});
+			await loadSites();
+			storeSiteTaskReport({
+				kind: "checkin",
+				status: "completed",
+				runs_at: result.runs_at,
+				started_at: startedAt,
+				finished_at: result.runs_at,
+				progress: {
+					total: result.summary.total,
+					completed: result.summary.total,
+					success: result.summary.success,
+					warning: 0,
+					failed: result.summary.failed,
+					skipped: result.summary.skipped,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: result.runs_at,
+				},
+				error_message: null,
+				summary: result.summary,
+				items: result.results,
+			});
+			if (result.summary.total === 0) {
+				pushNotice("info", "当前没有开启签到的站点");
+				return;
+			}
+			pushNotice(
+				result.summary.failed > 0 ? "warning" : "success",
+				result.summary.failed > 0
+					? "批量签到完成，有部分站点失败。"
+					: "批量签到完成。",
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		data.sites,
+		endAction,
+		isActionPending,
+		loadSites,
+		pushNotice,
+		startAction,
+		storeSiteTaskReport,
+	]);
+
+	const handleRefreshSite = useCallback(
+		async (site: Site) => {
+			const actionKey = buildActionKey("site:refresh", site.id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<
+					SiteChannelRefreshBatchReport["items"][number]
+				>(`/api/sites/${site.id}/refresh`, {
+					method: "POST",
+				});
+				setSiteModelPreviewBySiteId((prev) => {
+					if (!(site.id in prev)) {
+						return prev;
+					}
+					const next = { ...prev };
+					delete next[site.id];
+					return next;
+				});
+				await Promise.all([loadSites(), loadModels()]);
+				syncRefreshTaskItem(result, new Date().toISOString());
+				const failedTokens = getRefreshFailedTokenLabels(result);
+				const failureDetails = getRefreshFailureDetails(result);
+				pushNotice(
+					result.status === "success" ? "success" : "warning",
+					result.status === "warning"
+						? `${site.name || "站点"}：${result.message}${
+								failedTokens.length > 0
+									? `\n失败令牌：${failedTokens.join("、")}`
+									: ""
+							}`
+						: result.status === "failed" && failureDetails.length > 0
+							? `${site.name || "站点"}：${result.message}\n${failureDetails
+									.map((detail) =>
+										[
+											`令牌：${
+												detail.tokens.length > 0
+													? detail.tokens.join("、")
+													: "未标记令牌"
+											}`,
+											`失败码：${detail.code}`,
+											`失败原因：${detail.reason}`,
+										].join("\n"),
+									)
+									.join("\n")}`
+							: `${site.name || "站点"}：${result.message}`,
+				);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			pushNotice,
+			startAction,
+			syncRefreshTaskItem,
+		],
+	);
+
+	const handleRefreshDraftSite = useCallback(
+		async (siteId: string) => {
+			if (!editingSite || editingSite.id !== siteId) {
+				return;
+			}
+			const actionKey = buildActionKey("site:refresh", siteId);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			const baseUrlValue = siteForm.base_url.trim();
+			if (!baseUrlValue && !getDefaultBaseUrlForSiteType(siteForm.site_type)) {
+				pushNotice("warning", "基础 URL 不能为空");
+				return;
+			}
+			const callTokens = siteForm.call_tokens
+				.map((token, index) => ({
+					id: token.id,
+					name: token.name.trim() || `调用令牌${index + 1}`,
+					api_key: token.api_key.trim(),
+					priority: index,
+				}))
+				.filter((token) => token.api_key.length > 0);
+			if (callTokens.length === 0) {
+				pushNotice("warning", "至少填写一个调用令牌");
+				return;
+			}
+			startAction(actionKey);
+			try {
+				const result = await apiFetch<
+					SiteChannelRefreshBatchReport["items"][number]
+				>(`/api/sites/${siteId}/refresh-preview`, {
+					method: "POST",
+					body: JSON.stringify({
+						name: siteForm.name.trim() || editingSite.name,
+						base_url: baseUrlValue,
+						site_type: siteForm.site_type,
+						call_tokens: callTokens,
+					}),
+				});
+				setSiteModelPreviewBySiteId((prev) => {
+					const next = { ...prev };
+					if (result.models.length > 0) {
+						next[siteId] = result.models;
+					} else {
+						delete next[siteId];
+					}
+					return next;
+				});
+				const failedTokens = getRefreshFailedTokenLabels(result);
+				const failureDetails = getRefreshFailureDetails(result);
+				const siteLabel = siteForm.name.trim() || editingSite.name || "站点";
+				pushNotice(
+					result.status === "success" ? "success" : "warning",
+					result.status === "warning"
+						? `${siteLabel}：${result.message}${
+								failedTokens.length > 0
+									? `\n失败令牌：${failedTokens.join("、")}`
+									: ""
+							}`
+						: result.status === "failed" && failureDetails.length > 0
+							? `${siteLabel}：${result.message}\n${failureDetails
+									.map((detail) =>
+										[
+											`令牌：${
+												detail.tokens.length > 0
+													? detail.tokens.join("、")
+													: "未标记令牌"
+											}`,
+											`失败码：${detail.code}`,
+											`失败原因：${detail.reason}`,
+										].join("\n"),
+									)
+									.join("\n")}`
+							: `${siteLabel}：${result.message}`,
+				);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			editingSite,
+			endAction,
+			isActionPending,
+			pushNotice,
+			siteForm,
+			startAction,
+		],
+	);
+
+	const handleRefreshActiveSites = useCallback(async () => {
+		const actionKey = buildActionKey("site:refreshAll");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const startedAt = new Date().toISOString();
+			storeSiteTaskReport(
+				buildRunningSiteTaskReport(
+					"refresh-active",
+					data.sites.filter((site) => site.status === "active").length,
+					startedAt,
+				),
+			);
+			const report = await apiFetch<SiteChannelRefreshBatchReport>(
+				"/api/sites/refresh-active",
+				{
+					method: "POST",
+				},
+			);
+			await Promise.all([loadSites(), loadModels()]);
+			storeSiteTaskReport({
+				kind: "refresh-active",
+				status: "completed",
+				runs_at: report.runs_at,
+				started_at: startedAt,
+				finished_at: report.runs_at,
+				progress: {
+					total: report.summary.total,
+					completed: report.summary.total,
+					success: report.summary.success,
+					warning: report.summary.warning,
+					failed: report.summary.failed,
+					skipped: 0,
+					current_site_id: null,
+					current_site_name: null,
+					updated_at: report.runs_at,
+				},
+				error_message: null,
+				report,
+			});
+			if (report.summary.total === 0) {
+				pushNotice("info", "当前没有启用渠道可更新");
+				return;
+			}
+			const firstProblemItem = report.items.find(
+				(item) => item.status === "failed" || item.status === "warning",
+			);
+			pushNotice(
+				report.summary.failed > 0 || report.summary.warning > 0
+					? "warning"
+					: "success",
+				report.summary.failed > 0 || report.summary.warning > 0
+					? `更新完成，失败 ${report.summary.failed} 个，部分成功 ${report.summary.warning} 个。${
+							firstProblemItem?.message
+								? ` 首个异常：${firstProblemItem.message}`
+								: ""
+						}`
+					: "更新完成。",
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		data.sites,
+		endAction,
+		isActionPending,
+		loadModels,
+		loadSites,
+		pushNotice,
+		startAction,
+		storeSiteTaskReport,
+	]);
+
+	const handleSetModelStatus = useCallback(
+		async (channelId: string, model: string, status: ModelStatusUpdate) => {
+			const actionKey = buildActionKey(`model:${channelId}:${model}`);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/models/status", {
+					method: "POST",
+					body: JSON.stringify({
+						channel_id: channelId,
+						model,
+						status,
+					}),
+				});
+				await Promise.all([loadModels(), loadSites()]);
+				if (status === "auto") {
+					pushNotice("success", `模型已删除：${model}`);
+					return;
+				}
+				const statusLabel = status === "manual" ? "手动" : "已排除";
+				pushNotice("success", `模型已更新为${statusLabel}：${model}`);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadModels,
+			loadSites,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handlePricingSync = useCallback(async () => {
+		const actionKey = buildActionKey("pricing:sync");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const result = await apiFetch<PricingSyncResult>("/api/pricing/sync", {
+				method: "POST",
+				body: JSON.stringify({
+					sources: pricingSyncSources.filter(Boolean),
+				}),
+			});
+			setLastPricingSyncResult(result);
+			await loadPricingContext();
+			const total = result.items.reduce((sum, item) => sum + item.count, 0);
+			const exactTotal = result.items.reduce(
+				(sum, item) => sum + (item.exact_count ?? 0),
+				0,
+			);
+			const estimatedTotal = result.items.reduce(
+				(sum, item) => sum + (item.estimated_count ?? 0),
+				0,
+			);
+			pushNotice(
+				result.ok ? "success" : "warning",
+				result.ok
+					? `价格同步完成，按 ${getCurrencyDisplayLabel(result.currency)} 更新 ${total} 条：精确 ${exactTotal} 条，估算 ${estimatedTotal} 条，美元/人民币汇率 ${result.usd_cny_rate}`
+					: "价格同步完成，但没有抓到可用价格",
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadPricingContext,
+		pricingSyncSources,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleManualPriceCleanup = useCallback(async () => {
+		const previewActionKey = buildActionKey("pricing:cleanup-manual:preview");
+		if (isActionPending(previewActionKey)) {
+			return;
+		}
+		startAction(previewActionKey);
+		try {
+			const openManualPriceCleanupConfirm = (
+				preview: ManualPriceCleanupPreview,
+			) => {
+				openConfirm({
+					title: "清理手动价格",
+					message: "这些记录不会命中任何模型，继续后会被真正删除。",
+					previewSummary: `当前共有 ${preview.total} 条可清理的手动价格`,
+					previewItems: preview.items.map((item) => ({
+						id: item.id,
+						title: `${item.provider}/${item.model_pattern}`,
+						detail: "当前没有命中任何模型",
+						actionLabel: "单独清理",
+						actionKey: buildActionKey("pricing:cleanup-manual:item", item.id),
+						onAction: async () => {
+							const itemActionKey = buildActionKey(
+								"pricing:cleanup-manual:item",
+								item.id,
+							);
+							if (isActionPending(itemActionKey)) {
+								return;
+							}
+							startAction(itemActionKey);
+							try {
+								await apiFetch(
+									`/api/pricing/models/manual-orphans/${encodeURIComponent(item.id)}`,
+									{
+										method: "DELETE",
+									},
+								);
+								await loadPricingModels();
+								const nextPreview = await apiFetch<ManualPriceCleanupPreview>(
+									"/api/pricing/models/manual-orphans/preview",
+								);
+								if (nextPreview.total <= 0) {
+									setConfirmState(null);
+									pushNotice("success", "已清理最后一条手动价格");
+									return;
+								}
+								openManualPriceCleanupConfirm(nextPreview);
+								pushNotice(
+									"success",
+									`已清理手动价格：${item.provider}/${item.model_pattern}`,
+								);
+							} catch (error) {
+								pushNotice("error", (error as Error).message);
+							} finally {
+								endAction(itemActionKey);
+							}
+						},
+					})),
+					previewQuestion: "确认全部清理吗？",
+					confirmLabel: "全部清理",
+					tone: "error",
+					onConfirm: async () => {
+						const cleanupActionKey = buildActionKey("pricing:cleanup-manual");
+						if (isActionPending(cleanupActionKey)) {
+							return;
+						}
+						startAction(cleanupActionKey);
+						try {
+							const result = await apiFetch<
+								ManualPriceCleanupPreview & {
+									ok: boolean;
+									deleted: number;
+								}
+							>("/api/pricing/models/manual-orphans/cleanup", {
+								method: "POST",
+							});
+							await loadPricingModels();
+							pushNotice(
+								"success",
+								`已清理 ${result.deleted} 条没有模型命中的手动价格`,
+							);
+						} catch (error) {
+							pushNotice("error", (error as Error).message);
+						} finally {
+							endAction(cleanupActionKey);
+						}
+					},
+				});
+			};
+			const preview = await apiFetch<ManualPriceCleanupPreview>(
+				"/api/pricing/models/manual-orphans/preview",
+			);
+			if (preview.total <= 0) {
+				pushNotice("info", "当前没有可清理的手动价格");
+				return;
+			}
+			openManualPriceCleanupConfirm(preview);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(previewActionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadPricingModels,
+		openConfirm,
+		pushNotice,
+		startAction,
+	]);
+
+	const handlePricingCurrencyChange = useCallback(
+		async (currency: "USD" | "CNY") => {
+			if (currency === pricingCurrency) {
+				return;
+			}
+			const actionKey = buildActionKey("pricing:currency");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/settings", {
+					method: "PUT",
+					body: JSON.stringify({
+						pricing_currency: currency,
+					}),
+				});
+				await refreshPricingDisplayData();
+				pushNotice(
+					"success",
+					`价格货币已切换为 ${getCurrencyDisplayLabel(currency)}`,
+				);
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			refreshPricingDisplayData,
+			isActionPending,
+			pricingCurrency,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleCanonicalModelCreate = useCallback(
+		async (payload: CanonicalModelInput) => {
+			const actionKey = buildActionKey("canonical-model:create");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/canonical-models", {
+					method: "POST",
+					body: JSON.stringify(payload),
+				});
+				await loadCanonicalModels();
+				pushNotice("success", "统一模型已保存");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleCanonicalModelSync = useCallback(async () => {
+		const actionKey = buildActionKey("canonical-model:sync");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			const result = await apiFetch<CanonicalModelSyncResult>(
+				"/api/canonical-models/sync",
+				{
+					method: "POST",
+				},
+			);
+			setCanonicalModelSyncResult(result);
+			await loadCanonicalModels();
+			pushNotice(
+				result.conflicts.length > 0 || result.invalid_rules.length > 0
+					? "warning"
+					: "success",
+				`同步完成：新增 ${result.imported} 条，冲突 ${result.conflicts.length} 条，无效规则 ${result.invalid_rules.length} 条`,
+			);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadCanonicalModels,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleCanonicalModelCleanup = useCallback(async () => {
+		const previewActionKey = buildActionKey("canonical-model:cleanup:preview");
+		if (isActionPending(previewActionKey)) {
+			return;
+		}
+		startAction(previewActionKey);
+		try {
+			const openCanonicalModelCleanupConfirm = (
+				preview: CanonicalModelCleanupPreview,
+			) => {
+				openConfirm({
+					title: "清理残留模型",
+					message: "这些统一模型已经被新的精确别名接管，继续后会被真正删除。",
+					previewSummary: `当前共有 ${preview.total} 个可清理的残留统一模型`,
+					previewItems: preview.items.map((item) => ({
+						id: item.canonical_model,
+						title: item.canonical_model,
+						detail: `已被 ${item.replacement_canonical_models.join("、")} 接管`,
+						actionLabel: "单独清理",
+						actionKey: buildActionKey(
+							"canonical-model:cleanup:item",
+							item.canonical_model,
+						),
+						onAction: async () => {
+							const itemActionKey = buildActionKey(
+								"canonical-model:cleanup:item",
+								item.canonical_model,
+							);
+							if (isActionPending(itemActionKey)) {
+								return;
+							}
+							startAction(itemActionKey);
+							try {
+								await apiFetch(
+									`/api/canonical-models/orphans/${encodeURIComponent(item.canonical_model)}`,
+									{
+										method: "DELETE",
+									},
+								);
+								await loadCanonicalModels();
+								const nextPreview =
+									await apiFetch<CanonicalModelCleanupPreview>(
+										"/api/canonical-models/orphans/preview",
+									);
+								if (nextPreview.total <= 0) {
+									setConfirmState(null);
+									pushNotice("success", "已清理最后一个残留统一模型");
+									return;
+								}
+								openCanonicalModelCleanupConfirm(nextPreview);
+								pushNotice(
+									"success",
+									`已清理残留统一模型：${item.canonical_model}`,
+								);
+							} catch (error) {
+								pushNotice("error", (error as Error).message);
+							} finally {
+								endAction(itemActionKey);
+							}
+						},
+					})),
+					previewQuestion: "确认全部清理吗？",
+					confirmLabel: "全部清理",
+					tone: "error",
+					onConfirm: async () => {
+						const cleanupActionKey = buildActionKey("canonical-model:cleanup");
+						if (isActionPending(cleanupActionKey)) {
+							return;
+						}
+						startAction(cleanupActionKey);
+						try {
+							const result = await apiFetch<
+								CanonicalModelCleanupPreview & {
+									ok: boolean;
+									deleted: number;
+								}
+							>("/api/canonical-models/orphans/cleanup", {
+								method: "POST",
+							});
+							await loadCanonicalModels();
+							pushNotice("success", `已清理 ${result.deleted} 个残留统一模型`);
+						} catch (error) {
+							pushNotice("error", (error as Error).message);
+						} finally {
+							endAction(cleanupActionKey);
+						}
+					},
+				});
+			};
+			const preview = await apiFetch<CanonicalModelCleanupPreview>(
+				"/api/canonical-models/orphans/preview",
+			);
+			if (preview.total <= 0) {
+				pushNotice("info", "当前没有可清理的残留模型");
+				return;
+			}
+			openCanonicalModelCleanupConfirm(preview);
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(previewActionKey);
+		}
+	}, [
+		apiFetch,
+		endAction,
+		isActionPending,
+		loadCanonicalModels,
+		openConfirm,
+		pushNotice,
+		startAction,
+	]);
+
+	const handleCanonicalModelUpdate = useCallback(
+		async (canonicalModel: string, payload: CanonicalModelInput) => {
+			const actionKey = buildActionKey("canonical-model:update");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(
+					`/api/canonical-models/${encodeURIComponent(canonicalModel)}`,
+					{
+						method: "PATCH",
+						body: JSON.stringify(payload),
+					},
+				);
+				await loadCanonicalModels();
+				pushNotice("success", "统一模型已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const requestCanonicalModelDelete = useCallback(
+		(item: CanonicalModelItem) => {
+			openConfirm({
+				title: "删除统一模型",
+				message: `确定删除 ${item.canonical_model} 吗？`,
+				confirmLabel: "删除",
+				tone: "error",
+				onConfirm: async () => {
+					const actionKey = buildActionKey(
+						"canonical-model:delete",
+						item.canonical_model,
+					);
+					if (isActionPending(actionKey)) {
+						return;
+					}
+					startAction(actionKey);
+					try {
+						await apiFetch(
+							`/api/canonical-models/${encodeURIComponent(item.canonical_model)}`,
+							{
+								method: "DELETE",
+							},
+						);
+						await loadCanonicalModels();
+						pushNotice("success", "统一模型已删除");
+					} catch (error) {
+						pushNotice("error", (error as Error).message);
+					} finally {
+						endAction(actionKey);
+					}
+				},
+			});
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadCanonicalModels,
+			openConfirm,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handlePricingCreate = useCallback(
+		async (payload: ModelPriceInput) => {
+			const actionKey = buildActionKey("pricing:create");
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch("/api/pricing/models", {
+					method: "POST",
+					body: JSON.stringify({
+						...payload,
+						source: payload.source ?? "manual",
+					}),
+				});
+				await loadPricingModels();
+				pushNotice("success", "手动价格已保存");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handlePricingUpdate = useCallback(
+		async (id: string, patch: Partial<ModelPriceInput>) => {
+			const actionKey = buildActionKey("pricing:update", id);
+			if (isActionPending(actionKey)) {
+				return;
+			}
+			startAction(actionKey);
+			try {
+				await apiFetch(`/api/pricing/models/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify(patch),
+				});
+				await loadPricingModels();
+				pushNotice("success", "价格已更新");
+			} catch (error) {
+				pushNotice("error", (error as Error).message);
+			} finally {
+				endAction(actionKey);
+			}
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const requestPricingDelete = useCallback(
+		(price: ModelPrice) => {
+			openConfirm({
+				title: "删除价格",
+				message: `确定删除 ${price.provider}/${price.model_pattern} 的价格吗？`,
+				confirmLabel: "删除",
+				tone: "error",
+				onConfirm: async () => {
+					const actionKey = buildActionKey("pricing:delete", price.id);
+					if (isActionPending(actionKey)) {
+						return;
+					}
+					startAction(actionKey);
+					try {
+						await apiFetch(`/api/pricing/models/${price.id}`, {
+							method: "DELETE",
+						});
+						await loadPricingModels();
+						pushNotice("success", "价格已删除");
+					} catch (error) {
+						pushNotice("error", (error as Error).message);
+					} finally {
+						endAction(actionKey);
+					}
+				},
+			});
+		},
+		[
+			apiFetch,
+			endAction,
+			isActionPending,
+			loadPricingModels,
+			openConfirm,
+			pushNotice,
+			startAction,
+		],
+	);
+
+	const handleUsageRefresh = useCallback(async () => {
+		const actionKey = buildActionKey("usage:refresh");
+		if (isActionPending(actionKey)) {
+			return;
+		}
+		startAction(actionKey);
+		try {
+			await Promise.all([loadSettings(), loadUsage()]);
+			pushNotice("success", "日志已刷新");
+		} catch (error) {
+			pushNotice("error", (error as Error).message);
+		} finally {
+			endAction(actionKey);
+		}
+	}, [
+		endAction,
+		isActionPending,
+		loadSettings,
+		loadUsage,
+		pushNotice,
+		startAction,
+	]);
+
+	const filteredSites = useMemo(
+		() => filterSites(data.sites, siteSearch),
+		[data.sites, siteSearch],
+	);
+	const sortedSites = useMemo(
+		() => sortSites(filteredSites, siteSort),
+		[filteredSites, siteSort],
+	);
+	const tokenTotal = data.tokens.length;
+	const tokenTotalPages = useMemo(
+		() => Math.max(1, Math.ceil(tokenTotal / tokenPageSize)),
+		[tokenTotal, tokenPageSize],
+	);
+	const pagedTokens = useMemo(() => {
+		const start = (tokenPage - 1) * tokenPageSize;
+		return data.tokens.slice(start, start + tokenPageSize);
+	}, [data.tokens, tokenPage, tokenPageSize]);
+	const usageTotalPages = useMemo(
+		() => Math.max(1, Math.ceil(usageTotal / usagePageSize)),
+		[usagePageSize, usageTotal],
+	);
+
+	useEffect(() => {
+		setTokenPage((prev) => Math.min(prev, tokenTotalPages));
+	}, [tokenTotalPages]);
+
+	useEffect(() => {
+		setUsagePage((prev) => Math.min(prev, usageTotalPages));
+	}, [usageTotalPages]);
+
+	useEffect(() => {
+		persistCanonicalModelSyncResult(visibleCanonicalModelSyncResult);
+	}, [visibleCanonicalModelSyncResult]);
+
+	const activeLabel = useMemo(
+		() => tabs.find((tab) => tab.id === activeTab)?.label ?? "管理台",
+		[activeTab],
+	);
+	const hasPendingSettingsChanges = useMemo(() => {
+		const settingsChanged =
+			JSON.stringify(settingsForm) !== JSON.stringify(settingsFormSnapshot);
+		const backupChanged =
+			JSON.stringify(pickEditableBackupSettings(backupSettings)) !==
+			JSON.stringify(backupSettingsSnapshot);
+		return settingsChanged || backupChanged;
+	}, [
+		backupSettings,
+		backupSettingsSnapshot,
+		settingsForm,
+		settingsFormSnapshot,
+	]);
+	const loginNotice = notices[notices.length - 1] ?? null;
+
+	const renderContent = () => {
+		if (loading) {
+			return (
+				<div class="app-card animate-fade-up p-5">
+					<div class="flex items-center gap-3 text-sm text-[color:var(--app-ink-muted)]">
+						<span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[color:var(--app-accent)]" />
+						正在加载数据...
+					</div>
+					<div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						<div class="h-20 rounded-xl bg-white/70" />
+						<div class="h-20 rounded-xl bg-white/60" />
+						<div class="h-20 rounded-xl bg-white/80" />
+					</div>
+				</div>
+			);
+		}
+		if (activeTab === "dashboard") {
+			return (
+				<DashboardView
+					dashboard={data.dashboard}
+					isRefreshing={
+						isActionPending(buildActionKey("dashboard:refresh")) ||
+						isActionPending(buildActionKey("dashboard:filter"))
+					}
+					query={dashboardQuery}
+					channels={data.sites}
+					tokens={data.tokens}
+					pricingCurrency={pricingCurrency}
+					pricingUsdCnyRate={pricingUsdCnyRate}
+					onQueryChange={handleDashboardQueryChange}
+					onApply={handleDashboardApply}
+					onRefresh={handleDashboardRefresh}
+				/>
+			);
+		}
+		if (activeTab === "channels") {
+			return (
+				<ChannelsView
+					models={data.models}
+					sites={data.sites}
+					siteForm={siteForm}
+					visibleSites={sortedSites}
+					editingSite={editingSite}
+					isSiteModalOpen={isSiteModalOpen}
+					taskReports={siteTaskReports}
+					siteModelPreviewBySiteId={siteModelPreviewBySiteId}
+					siteSearch={siteSearch}
+					siteSort={siteSort}
+					isActionPending={isActionPending}
+					onCreate={openSiteCreate}
+					onCloseModal={closeSiteModal}
+					onEdit={startSiteEdit}
+					onSubmit={handleSiteSubmit}
+					onVerify={handleSiteVerify}
+					onCheckin={handleCheckinRunSite}
+					onRefreshSite={handleRefreshSite}
+					onRefreshDraftSite={handleRefreshDraftSite}
+					onToggle={handleSiteToggle}
+					onDelete={requestSiteDelete}
+					onSearchChange={handleSiteSearchChange}
+					onSortChange={handleSiteSortChange}
+					onFormChange={handleSiteFormChange}
+					onRunAll={handleCheckinRunAll}
+					onVerifyAll={handleSiteVerifyAll}
+					onEvaluateRecovery={handleSiteRecoveryEvaluate}
+					onRefreshAll={handleRefreshActiveSites}
+					onDisableFailedSite={handleDisableFailedSite}
+					onDisableAllFailedSites={requestDisableAllFailedSites}
+					onCleanupDisabledSite={requestCleanupDisabledSite}
+					onCleanupDisabledGroup={requestCleanupDisabledGroup}
+					onCleanupDisabledAll={requestCleanupDisabledAll}
+					onClearCoolingModel={handleClearCoolingModel}
+					onSetModelStatus={handleSetModelStatus}
+				/>
+			);
+		}
+		if (activeTab === "models") {
+			return <ModelsView models={data.models} />;
+		}
+		if (activeTab === "canonicalModels") {
+			return (
+				<CanonicalModelsView
+					items={canonicalModels}
+					isSaving={
+						isActionPending(buildActionKey("canonical-model:create")) ||
+						isActionPending(buildActionKey("canonical-model:update"))
+					}
+					isSyncing={isActionPending(buildActionKey("canonical-model:sync"))}
+					isCleanupRunning={
+						isActionPending(buildActionKey("canonical-model:cleanup")) ||
+						isActionPending(buildActionKey("canonical-model:cleanup:preview"))
+					}
+					syncResult={visibleCanonicalModelSyncResult}
+					onCreate={handleCanonicalModelCreate}
+					onUpdate={handleCanonicalModelUpdate}
+					onDelete={requestCanonicalModelDelete}
+					onSync={handleCanonicalModelSync}
+					onCleanupResidualModels={handleCanonicalModelCleanup}
+				/>
+			);
+		}
+		if (activeTab === "pricing") {
+			return (
+				<PricingView
+					prices={modelPrices}
+					pricingCurrency={pricingCurrency}
+					lastPricingSyncResult={lastPricingSyncResult}
+					isPricingSyncing={isActionPending(buildActionKey("pricing:sync"))}
+					isPricingCurrencySaving={isActionPending(
+						buildActionKey("pricing:currency"),
+					)}
+					isPricingSaving={
+						isActionPending(buildActionKey("pricing:create")) ||
+						modelPrices.some((price) =>
+							isActionPending(buildActionKey("pricing:update", price.id)),
+						)
+					}
+					isManualPriceCleanupRunning={
+						isActionPending(buildActionKey("pricing:cleanup-manual")) ||
+						isActionPending(buildActionKey("pricing:cleanup-manual:preview"))
+					}
+					onPricingSync={handlePricingSync}
+					onPricingCurrencyChange={handlePricingCurrencyChange}
+					onPricingCreate={handlePricingCreate}
+					onPricingUpdate={handlePricingUpdate}
+					onPricingDelete={requestPricingDelete}
+					onCleanupManualPrices={handleManualPriceCleanup}
+				/>
+			);
+		}
+		if (activeTab === "tokens") {
+			return (
+				<TokensView
+					pagedTokens={pagedTokens}
+					tokenPage={tokenPage}
+					tokenPageSize={tokenPageSize}
+					tokenTotal={tokenTotal}
+					tokenTotalPages={tokenTotalPages}
+					isTokenModalOpen={isTokenModalOpen}
+					isActionPending={isActionPending}
+					sites={data.sites}
+					onCreate={openTokenCreate}
+					onCloseModal={closeTokenModal}
+					onPageChange={handleTokenPageChange}
+					onPageSizeChange={handleTokenPageSizeChange}
+					tokenForm={tokenForm}
+					editingToken={editingToken}
+					onSubmit={handleTokenSubmit}
+					onFormChange={handleTokenFormChange}
+					onEdit={openTokenEdit}
+					onReveal={handleTokenReveal}
+					onToggle={handleTokenToggle}
+					onDelete={requestTokenDelete}
+				/>
+			);
+		}
+		if (activeTab === "usage") {
+			return (
+				<UsageView
+					usage={data.usage}
+					total={usageTotal}
+					page={usagePage}
+					pageSize={usagePageSize}
+					filters={usageFilters}
+					isRefreshing={
+						isActionPending(buildActionKey("usage:refresh")) ||
+						isActionPending(buildActionKey("usage:load"))
+					}
+					sites={data.sites}
+					tokens={data.tokens}
+					models={data.models}
+					pricingCurrency={pricingCurrency}
+					pricingUsdCnyRate={pricingUsdCnyRate}
+					onRefresh={handleUsageRefresh}
+					onPageChange={handleUsagePageChange}
+					onPageSizeChange={handleUsagePageSizeChange}
+					onFiltersChange={handleUsageFiltersChange}
+					onSearch={handleUsageSearch}
+					onClear={handleUsageClear}
+				/>
+			);
+		}
+		if (activeTab === "settings") {
+			return (
+				<SettingsView
+					settingsForm={settingsForm}
+					adminPasswordSet={data.settings?.admin_password_set ?? false}
+					runtimeConfig={data.settings?.runtime_config ?? null}
+					retryErrorCodeOptions={retryErrorCodeOptions}
+					isSaving={isActionPending(buildActionKey("settings:submit"))}
+					hasPendingSettingsChanges={hasPendingSettingsChanges}
+					backupSettings={backupSettings}
+					backupImportMode={backupImportMode}
+					backupImportFileName={backupImportFile?.name ?? ""}
+					isBackupExporting={isActionPending(buildActionKey("backup:export"))}
+					isBackupImporting={isActionPending(buildActionKey("backup:import"))}
+					isBackupPushing={isActionPending(buildActionKey("backup:push"))}
+					isBackupPulling={isActionPending(buildActionKey("backup:pull"))}
+					onSubmit={handleSettingsSubmit}
+					onFormChange={handleSettingsFormChange}
+					onBackupSettingsChange={handleBackupSettingsChange}
+					onBackupExport={handleBackupExport}
+					onBackupImportModeChange={handleBackupImportModeChange}
+					onBackupImportFileChange={handleBackupImportFileChange}
+					onBackupImport={handleBackupImport}
+					onBackupPushNow={handleBackupPushNow}
+					onBackupPullNow={handleBackupPullNow}
+					onApplyRecommendedConfig={handleApplyRecommendedConfig}
+				/>
+			);
+		}
+		return <div class="app-card p-5">未知模块</div>;
+	};
+
+	return (
+		<div class="app-shell relative min-h-screen antialiased">
+			<div aria-hidden="true" class="app-background" />
+			{token ? (
+				<AppLayout
+					tabs={tabs}
+					activeTab={activeTab}
+					activeLabel={activeLabel}
+					token={token}
+					notices={notices}
+					onDismissNotice={dismissNotice}
+					onTabChange={handleTabChange}
+					onLogout={handleLogout}
+				>
+					{renderContent()}
+				</AppLayout>
+			) : (
+				<LoginView
+					isSubmitting={isActionPending(buildActionKey("login:submit"))}
+					notice={loginNotice}
+					onSubmit={handleLogin}
+				/>
+			)}
+			{siteVerificationDialog && (
+				<Dialog
+					open={Boolean(siteVerificationDialog)}
+					onClose={closeSiteVerificationDialog}
+				>
+					<DialogContent
+						aria-labelledby="site-verification-title"
+						aria-modal="true"
+						class="max-w-4xl"
+					>
+						<DialogHeader>
+							<div>
+								<DialogTitle id="site-verification-title">
+									{siteVerificationDialog.title}
+								</DialogTitle>
+								<DialogDescription>
+									{siteVerificationDialog.result.site_name} ·{" "}
+									{getVerificationVerdictLabel(
+										siteVerificationDialog.result.verdict,
+									)}
+									。{siteVerificationDialog.result.message}
+								</DialogDescription>
+							</div>
+							<Button
+								size="sm"
+								type="button"
+								onClick={closeSiteVerificationDialog}
+							>
+								关闭
+							</Button>
+						</DialogHeader>
+						<div class="mt-3 grid gap-3 md:grid-cols-2">
+							{(
+								[
+									[
+										"连接验证",
+										siteVerificationDialog.result.stages.connectivity,
+									],
+									["能力验证", siteVerificationDialog.result.stages.capability],
+									["服务验证", siteVerificationDialog.result.stages.service],
+									["恢复评估", siteVerificationDialog.result.stages.recovery],
+								] as const
+							).map(([label, stage]) => {
+								const tone = getVerificationStageTone(stage.status);
+								return (
+									<div
+										class={`rounded-2xl border px-4 py-4 ${getVerificationStageClass(
+											tone,
+										)}`}
+										key={label}
+									>
+										<div class="flex items-center justify-between gap-3">
+											<p class="text-sm font-semibold">{label}</p>
+											<span class="text-xs font-semibold uppercase tracking-widest">
+												{stage.status}
+											</span>
+										</div>
+										<p class="mt-2 text-xs">{stage.message}</p>
+										<p class="mt-2 text-[11px] opacity-80">
+											code: {stage.code}
+										</p>
+									</div>
+								);
+							})}
+						</div>
+						<div class="mt-4 grid gap-3 rounded-2xl border border-white/60 bg-white/75 px-4 py-4 md:grid-cols-2">
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									验证模型
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{siteVerificationDialog.result.selected_model ?? "未选择"}
+								</p>
+							</div>
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									检查时间
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{formatChinaDateTimeMinute(
+										siteVerificationDialog.result.checked_at,
+									)}
+								</p>
+							</div>
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									建议动作
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{getSuggestedActionLabel(
+										siteVerificationDialog.result.suggested_action,
+									)}
+								</p>
+							</div>
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									请求格式
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{siteVerificationDialog.result.request_entry_format
+										? getRequestEntryFormatLabel(
+												siteVerificationDialog.result.request_entry_format,
+											)
+										: "-"}
+								</p>
+							</div>
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									调用令牌
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{siteVerificationDialog.result.selected_token?.name ??
+										"未命中"}
+								</p>
+							</div>
+							<div>
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									上游状态
+								</p>
+								<p class="mt-1 text-sm font-semibold text-[color:var(--app-ink)]">
+									{siteVerificationDialog.result.trace.upstream_status ?? "-"}
+								</p>
+							</div>
+						</div>
+						{(() => {
+							const attemptSummary = getVerificationAttemptSummary(
+								siteVerificationDialog.result,
+							);
+							const attempts = getVerificationAttempts(
+								siteVerificationDialog.result,
+							);
+							return (
+								<div class="mt-4 rounded-2xl border border-white/60 bg-white/75 px-4 py-4">
+									<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+										尝试记录
+									</p>
+									<div class="mt-3 grid gap-3 md:grid-cols-2">
+										<div>
+											<p class="text-[11px] font-semibold text-[color:var(--app-ink-muted)]">
+												尝试模型
+											</p>
+											<p class="mt-1 break-words text-xs text-[color:var(--app-ink)]">
+												{attemptSummary.models.length > 0
+													? attemptSummary.models.join("、")
+													: "-"}
+											</p>
+										</div>
+										<div>
+											<p class="text-[11px] font-semibold text-[color:var(--app-ink-muted)]">
+												尝试格式
+											</p>
+											<p class="mt-1 break-words text-xs text-[color:var(--app-ink)]">
+												{attemptSummary.formats.length > 0
+													? attemptSummary.formats.join("、")
+													: "-"}
+											</p>
+										</div>
+									</div>
+									<div class="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+										{attempts.length === 0 ? (
+											<p class="text-xs text-[color:var(--app-ink-muted)]">
+												当前没有可展示的逐次尝试日志。
+											</p>
+										) : (
+											attempts.map((attempt, index) => (
+												<div
+													class="rounded-xl border border-white/60 bg-slate-50/70 px-3 py-3"
+													key={`verification-attempt:${index}`}
+												>
+													<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+														<span class="font-semibold text-[color:var(--app-ink)]">
+															第 {index + 1} 次
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{getVerificationAttemptStatusLabel(
+																attempt.status,
+															)}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{attempt.request_entry_format
+																? getRequestEntryFormatLabel(
+																		attempt.request_entry_format,
+																	)
+																: attempt.endpoint_type}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															HTTP {attempt.http_status ?? "-"}
+														</span>
+														<span class="text-[color:var(--app-ink-muted)]">
+															{attempt.latency_ms} ms
+														</span>
+													</div>
+													<p class="mt-2 break-words text-xs text-[color:var(--app-ink)]">
+														模型：
+														{attempt.model ?? "-"}
+														{attempt.request_model &&
+														attempt.request_model !== attempt.model
+															? ` · 上游请求：${attempt.request_model}`
+															: ""}
+													</p>
+													<p class="mt-1 break-words text-[11px] text-[color:var(--app-ink-muted)]">
+														{attempt.detail_code ?? "-"}
+														{attempt.detail_message
+															? ` · ${attempt.detail_message}`
+															: ""}
+													</p>
+												</div>
+											))
+										)}
+									</div>
+								</div>
+							);
+						})()}
+						{getVerificationFailedTokenIssues(siteVerificationDialog.result)
+							.length > 0 ? (
+							<div class="mt-4 rounded-2xl border border-white/60 bg-white/75 px-4 py-4">
+								<p class="text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]">
+									失败令牌
+								</p>
+								<div class="mt-2 space-y-2">
+									{getVerificationFailedTokenIssues(
+										siteVerificationDialog.result,
+									).map((detail, index) => (
+										<p
+											class="break-words text-xs leading-5 text-[color:var(--app-ink)]"
+											key={`verification-token-failure:${index}`}
+										>
+											{detail}
+										</p>
+									))}
+								</div>
+							</div>
+						) : null}
+						<DialogFooter>
+							<Button
+								size="sm"
+								type="button"
+								onClick={closeSiteVerificationDialog}
+							>
+								关闭
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+			)}
+			{confirmState && (
+				<Dialog open={Boolean(confirmState)} onClose={closeConfirm}>
+					<DialogContent
+						aria-labelledby="confirm-title"
+						aria-modal="true"
+						class={confirmState.previewItems ? "max-w-2xl" : "max-w-md"}
+					>
+						<DialogHeader>
+							<div class="min-w-0 flex-1">
+								<DialogTitle id="confirm-title">
+									{confirmState.title}
+								</DialogTitle>
+								<DialogDescription class="break-words leading-5">
+									{confirmState.message}
+								</DialogDescription>
+							</div>
+							<Button size="sm" type="button" onClick={closeConfirm}>
+								关闭
+							</Button>
+						</DialogHeader>
+						{confirmState.previewItems ? (
+							<div class="mt-4 w-full rounded-2xl border border-white/60 bg-white/75 px-4 py-4">
+								{confirmState.previewSummary ? (
+									<p class="text-sm font-semibold text-[color:var(--app-ink)]">
+										{confirmState.previewSummary}
+									</p>
+								) : null}
+								<ul class="mt-3 max-h-[50vh] w-full space-y-2 overflow-y-auto pr-1">
+									{confirmState.previewItems.map((item) =>
+										(() => {
+											const isItemActionPending = item.actionKey
+												? isActionPending(item.actionKey)
+												: false;
+											return (
+												<li
+													class="flex flex-col gap-3 rounded-xl border border-white/60 bg-white/85 px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+													key={item.id}
+												>
+													<div class="min-w-0 flex-1">
+														<p class="break-words text-sm font-semibold text-[color:var(--app-ink)]">
+															{item.title}
+														</p>
+														{item.detail ? (
+															<p class="mt-1 break-words text-xs text-[color:var(--app-ink-muted)]">
+																{item.detail}
+															</p>
+														) : null}
+													</div>
+													{item.onAction ? (
+														<Button
+															size="sm"
+															type="button"
+															variant="ghost"
+															class="h-8 shrink-0 px-3 text-[11px]"
+															disabled={isItemActionPending}
+															onClick={() => void item.onAction?.()}
+														>
+															{isItemActionPending
+																? "清理中..."
+																: (item.actionLabel ?? "处理")}
+														</Button>
+													) : null}
+												</li>
+											);
+										})(),
+									)}
+								</ul>
+								{confirmState.previewQuestion ? (
+									<p class="mt-2 text-sm font-medium text-[color:var(--app-ink)]">
+										{confirmState.previewQuestion}
+									</p>
+								) : null}
+							</div>
+						) : null}
+						<DialogFooter>
+							<Button size="sm" type="button" onClick={closeConfirm}>
+								取消
+							</Button>
+							<Button
+								size="sm"
+								variant={confirmState.tone === "error" ? "danger" : "primary"}
+								type="button"
+								disabled={confirmPending}
+								onClick={handleConfirm}
+							>
+								{confirmPending
+									? "处理中..."
+									: (confirmState.confirmLabel ?? "确认")}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+			)}
+		</div>
+	);
+};
+
+render(<App />, root);
