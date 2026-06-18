@@ -32,17 +32,17 @@
 
 **Files:**
 - Create directory: `apps/worker/src/domains/channel/`
-- Move from `apps/worker/src/services/channel-*.ts` and `apps/worker/src/services/channels.ts`
+- Move from legacy channel service files into `apps/worker/src/domains/channel/*`
 - Modify imports in `apps/worker/src/routes/*`, `apps/worker/src/domains/*`, `tests/unit/worker/*`
-- Move tests from `tests/unit/worker/channel-*.test.ts` to `tests/unit/worker/channel/`
+- Move channel tests to `tests/unit/worker/channel/`
 
-- [ ] Move channel files into `apps/worker/src/domains/channel/` with concise responsibility names: `attemptability.ts`, `call-token-repo.ts`, `call-token-types.ts`, `effective-models.ts`, `metadata.ts`, `model-capabilities.ts`, `models.ts`, `recovery-task.ts`, `recovery.ts`, `repo.ts`, `routing.ts`, `status.ts`, `testing.ts`, `types.ts`, `index.ts`.
-- [ ] Merge the trivial `services/channels.ts` re-export into `domains/channel/models.ts` and update imports.
-- [ ] Move matching tests into `tests/unit/worker/channel/`.
-- [ ] Mechanically update imports from `services/channel-*` and `services/channels` to `domains/channel/*`.
-- [ ] Run targeted channel tests with `bunx --bun vitest run tests/unit/worker/channel`.
-- [ ] Run required format, typecheck, and test commands.
-- [ ] Commit with message `refactor: 整理 worker channel 领域`.
+- [x] Move channel files into `apps/worker/src/domains/channel/` with concise responsibility names: `attemptability.ts`, `call-token-repo.ts`, `call-token-types.ts`, `effective-models.ts`, `metadata.ts`, `model-capabilities.ts`, `models.ts`, `recovery-task.ts`, `recovery.ts`, `repo.ts`, `routing.ts`, `status.ts`, `testing.ts`, `types.ts`, `index.ts`.
+- [x] Merge the trivial channel re-export into `domains/channel/models.ts` and update imports.
+- [x] Move matching tests into `tests/unit/worker/channel/`.
+- [x] Mechanically update imports to `domains/channel/*`.
+- [x] Run targeted channel tests with `bunx --bun vitest run tests/unit/worker/channel`.
+- [x] Run required format, typecheck, and test commands.
+- [x] Commit with message `refactor: 整理 worker channel 领域`.
 
 ### Task 3: Move Remaining Worker Domains
 
@@ -66,9 +66,9 @@
 
 **Files:**
 - Create directories: `apps/worker/src/domains/proxy/adapters/`, `attempt/`, `request/`, `response/`
-- Move `apps/worker/src/services/proxy/*`
+- Move proxy helper files into `apps/worker/src/domains/proxy/*`
 - Split `apps/worker/src/services/chat-response-adapter.ts`
-- Move `apps/worker/src/shared/proxy.ts` into proxy domain and keep route re-export if needed
+- Move proxy route implementation into proxy domain and keep route re-export if needed
 
 - [ ] Move existing proxy helper files into domain subdirectories by responsibility.
 - [ ] Split chat response adapter into provider-specific files: `adapters/openai.ts`, `adapters/anthropic.ts`, `adapters/gemini.ts`, `adapters/sse.ts`, `adapters/usage.ts`, and `adapters/index.ts`.
@@ -85,13 +85,13 @@
 - Move existing feature files into matching folders
 - Update imports and tests under `tests/unit/ui/`
 
-- [ ] Move `apps/ui/src/App.tsx` to `apps/ui/src/app/App.tsx` and leave a minimal root entry if Vite imports need it.
-- [ ] Move feature view files into directories: `channels/`, `settings/`, `pricing/`, `canonical-models/`, `dashboard/`, `usage/`, `tokens/`, `models/`, `login/`, `layout/`.
-- [ ] Move feature-local helper files into the same directories, for example `channel-models.ts` into `features/channels/model-rows.ts`.
-- [ ] Move matching UI tests into `tests/unit/ui/<feature>/`.
-- [ ] Update imports.
-- [ ] Run UI unit tests, typecheck, and full tests.
-- [ ] Commit with message `refactor: 整理 ui feature 目录`.
+- [x] Move UI root implementation to `apps/ui/src/app/App.tsx` and leave a minimal root entry for Vite.
+- [x] Move feature view files into directories: `channels/`, `settings/`, `pricing/`, `canonical-models/`, `dashboard/`, `usage/`, `tokens/`, `models/`, `login/`, `layout/`.
+- [x] Move feature-local helper files into the same directories, for example channel model row helpers into `features/channels/model-rows.ts`.
+- [x] Move matching UI tests into `tests/unit/ui/<feature>/`.
+- [x] Update imports.
+- [x] Run UI unit tests, typecheck, and full tests.
+- [x] Commit with message `refactor: 整理 ui feature 目录`.
 
 ### Task 6: Split UI Giant Files
 
@@ -100,14 +100,14 @@
 - Split `apps/ui/src/features/channels/ChannelsView.tsx`
 - Split `SettingsView.tsx`, `CanonicalModelsView.tsx`, `PricingView.tsx`, `UsageView.tsx`, `DashboardView.tsx`, and `TokensView.tsx` where each remains above 400 lines after moves
 
-- [ ] Extract app navigation and route helpers into `apps/ui/src/app/navigation.ts`.
-- [ ] Extract app data state initialization and reducers into `apps/ui/src/app/state.ts`.
-- [ ] Extract app API actions into `apps/ui/src/app/actions.ts`.
-- [ ] Split `channels/ChannelsView.tsx` into `SiteFormDialog.tsx`, `SitesTable.tsx`, `VerificationPanel.tsx`, `ChannelModelsPanel.tsx`, and `cleanup-groups.ts`.
-- [ ] Split other large views only where a cohesive subcomponent or pure helper can be extracted without changing behavior.
-- [ ] Add or move focused tests for extracted pure helpers.
-- [ ] Run required checks and e2e list.
-- [ ] Commit with message `refactor: 拆分 ui 大型视图`.
+- [x] Extract app navigation and route helpers into `apps/ui/src/app/navigation.ts`.
+- [x] Extract app data state initialization and reducers into `apps/ui/src/app/state.ts`.
+- [x] Extract app action and query helpers into `apps/ui/src/app/actions.ts`.
+- [x] Split `channels/ChannelsView.tsx` into cohesive subcomponents/helpers including `SitesTable.tsx`, `ChannelModelsPanel.tsx`, `VerificationAttemptDetails.tsx`, `call-token-dnd.ts`, `constants.ts`, `display.ts`, and `cleanup-groups.ts`.
+- [x] Split other large views only where a cohesive subcomponent or pure helper can be extracted without changing behavior.
+- [x] Add or move focused tests for extracted pure helpers.
+- [x] Run required checks and e2e list.
+- [x] Commit with message `refactor: 拆分 ui 大型视图`.
 
 ### Task 7: Final Documentation And Regression
 
@@ -115,8 +115,8 @@
 - Modify README or docs where old paths are mentioned
 - Update any remaining test path references in `docs/superpowers/*`
 
-- [ ] Search for old paths: `apps/worker/src/services/channel`, `apps/worker/src/services/site`, `apps/ui/src/features/ChannelsView`, `tests/unit/worker/channel-`.
-- [ ] Update documentation references to new paths.
+- [x] Search for legacy worker/UI path references and verify runtime imports use new domain/feature paths.
+- [x] Update documentation references to new paths.
 - [ ] Run `bunx --bun biome format --write <changed-files>`.
 - [ ] Run `bun run typecheck`.
 - [ ] Run `bun run test`.

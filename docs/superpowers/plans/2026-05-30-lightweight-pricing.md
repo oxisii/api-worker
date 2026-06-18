@@ -13,10 +13,10 @@
 ### Task 1: Pricing Core
 
 **Files:**
-- Create: `apps/worker/src/services/pricing/types.ts`
-- Create: `apps/worker/src/services/pricing/builtin.ts`
-- Create: `apps/worker/src/services/pricing/calculator.ts`
-- Create: `tests/unit/worker/pricing-calculator.test.ts`
+- Create: `apps/worker/src/domains/pricing/types.ts`
+- Create: `apps/worker/src/domains/pricing/builtin.ts`
+- Create: `apps/worker/src/domains/pricing/calculator.ts`
+- Create: `tests/unit/worker/pricing/calculator.test.ts`
 
 - [ ] Add tests for price priority, wildcard matching, markup, cache token pricing, and missing price fallback.
 - [ ] Implement focused pricing types, built-in model prices, and calculator helpers.
@@ -25,13 +25,13 @@
 
 **Files:**
 - Modify: `apps/worker/src/utils/usage.ts`
-- Modify: `apps/worker/src/services/usage.ts`
+- Modify: `apps/worker/src/domains/usage/index.ts`
 - Modify: `apps/attempt-worker/src/routes/attempt.ts`
-- Modify: `apps/worker/src/shared/proxy.ts`
-- Modify: `apps/worker/src/services/proxy/attempt-runner.ts`
+- Modify: `apps/worker/src/domains/proxy/route.ts`
+- Modify: `apps/worker/src/domains/proxy/attempt/runner.ts`
 - Modify: `apps/worker/src/wasm/core.ts`
 - Modify: `apps/worker/wasm/src/lib.rs`
-- Modify: `tests/unit/worker/usage-recording.test.ts`
+- Modify: `tests/unit/worker/usage/recording.test.ts`
 
 - [ ] Add tests for cache token extraction from OpenAI, Claude, and Gemini usage payloads.
 - [ ] Extend normalized usage with cache read/write and uncached input token fields.
@@ -42,8 +42,8 @@
 **Files:**
 - Create: `apps/worker/migrations/0020_add_pricing.sql`
 - Modify: `apps/worker/src/db/schema.sql`
-- Create: `apps/worker/src/services/pricing/repo.ts`
-- Create: `apps/worker/src/services/pricing/sync.ts`
+- Create: `apps/worker/src/domains/pricing/repo.ts`
+- Create: `apps/worker/src/domains/pricing/sync.ts`
 - Create: `apps/worker/src/routes/pricing.ts`
 - Modify: `apps/worker/src/index.ts`
 
@@ -54,9 +54,9 @@
 ### Task 4: Settings And Scheduler
 
 **Files:**
-- Modify: `apps/worker/src/services/settings.ts`
+- Modify: `apps/worker/src/domains/settings/index.ts`
 - Modify: `apps/worker/src/routes/settings.ts`
-- Modify: `apps/worker/src/services/checkin-scheduler.ts`
+- Modify: `apps/worker/src/domains/checkin/scheduler.ts`
 
 - [ ] Add pricing sync settings.
 - [ ] Run pricing sync from the existing scheduler when enabled.
@@ -66,11 +66,11 @@
 **Files:**
 - Modify: `apps/ui/src/core/types.ts`
 - Modify: `apps/ui/src/core/constants.ts`
-- Modify: `apps/ui/src/App.tsx`
-- Modify: `apps/ui/src/features/SettingsView.tsx`
-- Modify: `apps/ui/src/features/ModelsView.tsx`
-- Modify: `apps/ui/src/features/UsageView.tsx`
-- Modify: `apps/ui/src/features/DashboardView.tsx`
+- Modify: `apps/ui/src/app/App.tsx`
+- Modify: `apps/ui/src/features/settings/SettingsView.tsx`
+- Modify: `apps/ui/src/features/models/ModelsView.tsx`
+- Modify: `apps/ui/src/features/usage/UsageView.tsx`
+- Modify: `apps/ui/src/features/dashboard/DashboardView.tsx`
 - Modify: `apps/ui/src/styles.css`
 
 - [ ] Add settings controls for pricing sync and markup.

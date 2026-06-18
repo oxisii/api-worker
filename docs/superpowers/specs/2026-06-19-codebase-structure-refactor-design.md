@@ -13,7 +13,7 @@
 
 文件粒度也不一致：
 
-- 巨型文件承担太多职责，例如 `apps/ui/src/App.tsx`、`apps/ui/src/features/ChannelsView.tsx`、`apps/worker/src/domains/proxy/adapters/*`、`apps/worker/src/domains/proxy/route.ts`。
+- 巨型文件承担太多职责，例如重构前的 UI 入口和渠道页，以及 `apps/worker/src/domains/proxy/adapters/*`、`apps/worker/src/domains/proxy/route.ts`。
 - 很小的文件独立存在，但只服务单一领域，例如 `usage-format.ts`、`pricing-sync.ts`、`call-token-selector.ts`、`stream-options.ts`。
 
 仓库还跟踪了部分构建生成物，例如 `apps/worker/.wrangler-build/*`。这类文件会干扰源码目录判断。
@@ -81,8 +81,20 @@ apps/ui/src/
     navigation.ts
     state.ts
     actions.ts
+    ConfirmDialog.tsx
+    SiteVerificationDialog.tsx
   features/
     channels/
+      ChannelsView.tsx
+      ChannelModelsPanel.tsx
+      SitesTable.tsx
+      VerificationAttemptDetails.tsx
+      call-token-dnd.ts
+      cleanup-groups.ts
+      constants.ts
+      display.ts
+      model-rows.ts
+      request-entry-formats.ts
     settings/
     pricing/
     canonical-models/
@@ -97,7 +109,7 @@ apps/ui/src/
 
 规则：
 
-- `app/App.tsx` 只做应用装配、数据流串联和顶层路由。
+- `app/App.tsx` 只做应用装配、数据流串联和顶层路由；可复用弹窗、导航映射、状态初始化和动作构造拆到同目录小文件。
 - feature 目录承载页面、局部组件、局部纯逻辑和局部类型。
 - 只被一个 feature 使用的工具函数留在 feature 目录。
 - 被多个 feature 使用的稳定模型、API、格式化工具留在 `core`。

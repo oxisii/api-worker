@@ -13,23 +13,23 @@
 ### Task 1: 后端有效模型服务
 
 **Files:**
-- Create: `apps/worker/src/services/channel-effective-models.ts`
-- Test: `tests/unit/worker/channel-effective-models.test.ts`
+- Create: `apps/worker/src/domains/channel/effective-models.ts`
+- Test: `tests/unit/worker/channel/effective-models.test.ts`
 
 - [ ] 写失败测试：覆盖 verified/include/exclude 合并、旧 `models_json` 兜底、去重。
-- [ ] 运行 `bunx --bun vitest run tests/unit/worker/channel-effective-models.test.ts`，确认因缺少实现失败。
+- [ ] 运行 `bunx --bun vitest run tests/unit/worker/channel/effective-models.test.ts`，确认因缺少实现失败。
 - [ ] 实现 `parseManualModelConfig`、`resolveEffectiveModelIds`、`listEffectiveModelsByChannel`、`listEffectiveModelEntries`。
 - [ ] 运行同一测试确认通过。
 
 ### Task 2: 路由和模型列表接入
 
 **Files:**
-- Modify: `apps/worker/src/services/channel-routing.ts`
-- Modify: `apps/worker/src/services/openai-model-list.ts`
+- Modify: `apps/worker/src/domains/channel/routing.ts`
+- Modify: `apps/worker/src/domains/model/openai-model-list.ts`
 - Modify: `apps/worker/src/routes/models.ts`
 - Modify: `apps/worker/src/routes/newapiUsers.ts`
 - Modify: `apps/worker/src/routes/newapiChannels.ts`
-- Test: `tests/unit/worker/channel-routing.test.ts`
+- Test: `tests/unit/worker/channel/routing.test.ts`
 
 - [ ] 写失败测试：手动补充模型可选中渠道，手动排除模型不能选中渠道，只有 `models_json` 且有验证集时不能污染候选。
 - [ ] 运行单测确认失败。
@@ -39,12 +39,12 @@
 ### Task 3: 站点 API 与渠道内模型配置
 
 **Files:**
-- Modify: `apps/worker/src/services/site-metadata.ts`
+- Modify: `apps/worker/src/domains/site/metadata.ts`
 - Modify: `apps/worker/src/routes/sites.ts`
 - Modify: `apps/ui/src/core/types.ts`
-- Modify: `apps/ui/src/App.tsx`
-- Modify: `apps/ui/src/features/ChannelsView.tsx`
-- Create: `apps/ui/src/features/channel-models.ts`
+- Modify: `apps/ui/src/app/App.tsx`
+- Modify: `apps/ui/src/features/channels/ChannelsView.tsx`
+- Create: `apps/ui/src/features/channels/model-rows.ts`
 
 - [ ] 写站点 metadata 单测，确认 include/exclude 在更新 site_type 时保留并可更新。
 - [ ] 实现 metadata 读写和站点接口字段。
