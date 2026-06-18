@@ -1,6 +1,6 @@
 import { sanitizeUpstreamRequestHeaders } from "../../../../shared-core/src";
 import { normalizeBaseUrl } from "../../utils/url";
-import type { EndpointOverrides } from "../site-metadata";
+import type { EndpointOverrides } from "../../domains/site/metadata";
 import type { ModelDiscoveryResult } from "./types";
 
 const MODEL_DISCOVERY_DETAIL_MAX_LENGTH = 180;

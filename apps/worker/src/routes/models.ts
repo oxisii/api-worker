@@ -11,11 +11,11 @@ import {
 	readHotJson,
 	writeHotJson,
 } from "../services/hot-kv";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
 import {
 	buildModelsPayload,
 	type ModelsPayload,
-} from "../services/models-index";
+} from "../domains/model/index-payload";
 import { jsonError } from "../utils/http";
 import { nowIso } from "../utils/time";
 

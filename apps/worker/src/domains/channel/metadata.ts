@@ -1,11 +1,11 @@
 import { safeJsonParse } from "../../utils/json";
-import { deriveCanonicalModel } from "../../services/model-normalization";
+import { deriveCanonicalModel } from "../model/normalization";
 import {
 	type EndpointOverrides,
 	parseSiteMetadata,
 	type RequestEntry,
 	type SiteType,
-} from "../../services/site-metadata";
+} from "../../domains/site/metadata";
 import { resolveUpstreamProvider } from "../../services/upstreams";
 
 export type ProviderType = "openai" | "anthropic" | "gemini";

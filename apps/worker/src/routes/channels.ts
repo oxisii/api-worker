@@ -8,8 +8,8 @@ import {
 	listChannels,
 	updateChannel,
 } from "../domains/channel/repo";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
-import { verifyChannelById } from "../services/site-task-dispatcher";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
+import { verifyChannelById } from "../domains/site/task-dispatcher";
 import { invalidateSelectionHotCache } from "../services/hot-kv";
 import { generateToken } from "../utils/crypto";
 import { jsonError } from "../utils/http";

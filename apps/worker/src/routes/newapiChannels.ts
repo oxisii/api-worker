@@ -24,7 +24,7 @@ import {
 	parseProviderType,
 	resolveUpstreamProvider,
 } from "../services/upstreams";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
 import { invalidateSelectionHotCache } from "../services/hot-kv";
 import {
 	mergeMetadata,

@@ -3,10 +3,10 @@ import {
 	mergeQuery,
 	resolveChannelBaseUrl,
 } from "./request-planning";
-import type { ModelReasoningConfig } from "../model-reasoning-config";
+import type { ModelReasoningConfig } from "../../domains/model/reasoning-config";
 import { getProviderAdapter } from "../providers";
 import type { EndpointType, ProviderType } from "../provider-transform";
-import type { RequestEntryFormat } from "../site-metadata";
+import type { RequestEntryFormat } from "../../domains/site/metadata";
 import { resolveAttemptRequestBuildPlan } from "./request-build-plan";
 import { executeAttemptRequestBuildPlan } from "./request-build-strategy";
 import { applyAttemptStreamOptionsPolicy } from "./request-stream-options-policy";

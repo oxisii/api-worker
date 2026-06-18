@@ -4,7 +4,7 @@ import {
 	resolveMappedModel,
 } from "./metadata";
 import { extractModelIds } from "./models";
-import { deriveCanonicalModel } from "../../services/model-normalization";
+import { deriveCanonicalModel } from "../model/normalization";
 import {
 	buildRequestEntryFormatAttemptOrder,
 	resolveEndpointTypeForRequestEntryFormat,
@@ -13,7 +13,7 @@ import type {
 	EndpointType,
 	ProviderType,
 } from "../../services/provider-transform";
-import type { RequestEntryFormat } from "../../services/site-metadata";
+import type { RequestEntryFormat } from "../../domains/site/metadata";
 import {
 	parseManualModelConfig,
 	resolveEffectiveModelIds,

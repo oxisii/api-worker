@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
-import { getRetentionDays } from "../services/settings";
-import { scheduleUsageLogPrune } from "../services/usage";
+import { getRetentionDays } from "../domains/settings";
+import { scheduleUsageLogPrune } from "../domains/usage";
 
 const usage = new Hono<AppEnv>();
 

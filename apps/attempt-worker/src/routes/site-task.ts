@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import { runCheckin } from "../../../worker/src/services/checkin";
+import { runCheckin } from "../../../worker/src/domains/checkin";
 import { runDisabledChannelRecoveryProbe } from "../../../worker/src/domains/channel/recovery-task";
 import { testChannelTokens } from "../../../worker/src/domains/channel/testing";
 import type {
 	SiteTaskCheckinRequest,
 	SiteTaskProbeRequest,
 	SiteTaskTestRequest,
-} from "../../../worker/src/services/site-task-contract";
+} from "../../../worker/src/domains/site/task-contract";
 import type { AppEnv } from "../env";
 
 const siteTask = new Hono<AppEnv>();

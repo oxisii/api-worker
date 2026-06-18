@@ -3,14 +3,14 @@ import type { AppEnv } from "../env";
 import {
 	executeBackupSync,
 	resolveBackupSyncError,
-} from "../services/backup-sync";
+} from "../domains/backup/sync";
 import {
 	createBackupPayload,
 	importBackupPayload,
 	parseBackupPayload,
-} from "../services/backup";
-import { getCheckinSchedulerStub } from "../services/checkin-scheduler";
-import { getBackupSettings, setBackupSettings } from "../services/settings";
+} from "../domains/backup";
+import { getCheckinSchedulerStub } from "../domains/checkin/scheduler";
+import { getBackupSettings, setBackupSettings } from "../domains/settings";
 import { jsonError } from "../utils/http";
 
 const backup = new Hono<AppEnv>();

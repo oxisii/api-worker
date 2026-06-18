@@ -6,8 +6,11 @@ import {
 } from "../../../../shared-core/src";
 import type { EndpointType, ProviderType } from "../provider-transform";
 import { buildRequestEntryFormatAttemptOrder } from "../request-entry-attempts";
-import type { SiteType } from "../site-metadata";
-import type { RequestEntry, RequestEntryFormat } from "../site-metadata";
+import type { SiteType } from "../../domains/site/metadata";
+import type {
+	RequestEntry,
+	RequestEntryFormat,
+} from "../../domains/site/metadata";
 
 export function applyCustomRequestEntry(options: {
 	siteType: SiteType;

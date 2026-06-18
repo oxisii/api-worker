@@ -145,4 +145,4 @@ export default {
 	fetch: app.fetch,
 };
 
-export { CheckinScheduler } from "./services/checkin-scheduler";
+export { CheckinScheduler } from "./domains/checkin/scheduler";

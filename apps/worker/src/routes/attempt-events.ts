@@ -3,8 +3,8 @@ import type { AppEnv } from "../env";
 import {
 	listAttemptEventsByTrace,
 	pruneAttemptEvents,
-} from "../services/attempt-events";
-import { getAttemptLogRetentionDays } from "../services/settings";
+} from "../domains/usage/attempt-events";
+import { getAttemptLogRetentionDays } from "../domains/settings";
 import { jsonError } from "../utils/http";
 
 const attemptEvents = new Hono<AppEnv>();

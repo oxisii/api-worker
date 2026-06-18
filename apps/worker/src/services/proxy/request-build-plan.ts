@@ -1,11 +1,14 @@
-import type { SiteType } from "../site-metadata";
+import type { SiteType } from "../../domains/site/metadata";
 import type { EndpointType, ProviderType } from "../provider-transform";
 import {
 	resolveEndpointTypeForRequestEntryFormat,
 	resolveUpstreamProviderForRequestEntryFormat,
 } from "../request-entry-attempts";
 import { applyCustomRequestEntry } from "./custom-request-entry";
-import type { RequestEntry, RequestEntryFormat } from "../site-metadata";
+import type {
+	RequestEntry,
+	RequestEntryFormat,
+} from "../../domains/site/metadata";
 
 export type AttemptRequestBuildStrategy =
 	| "reuse_custom_entry_body"

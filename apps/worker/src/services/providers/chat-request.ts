@@ -1,4 +1,4 @@
-import type { EndpointOverrides } from "../site-metadata";
+import type { EndpointOverrides } from "../../domains/site/metadata";
 import {
 	buildUpstreamChatRequest,
 	type EndpointType,

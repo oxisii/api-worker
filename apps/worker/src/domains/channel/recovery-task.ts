@@ -5,7 +5,7 @@ import type {
 	SiteTaskProbeChannel,
 	SiteTaskProbeResult,
 	SiteTaskToken,
-} from "../../services/site-task-contract";
+} from "../../domains/site/task-contract";
 import { normalizeBaseUrl } from "../../utils/url";
 import { getProviderAdapter } from "../../services/providers";
 import { buildProviderChatRequest } from "../../services/providers/chat-request";

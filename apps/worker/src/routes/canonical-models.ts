@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
-import { planCanonicalModelCleanup } from "../services/canonical-model-cleanup";
-import { syncCanonicalModelAliases } from "../services/canonical-model-registry";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
+import { planCanonicalModelCleanup } from "../domains/model/canonical-cleanup";
+import { syncCanonicalModelAliases } from "../domains/model/canonical-registry";
 import {
 	parseModelReasoningConfig,
 	serializeModelReasoningConfig,
 	type ModelReasoningConfig,
-} from "../services/model-reasoning-config";
+} from "../domains/model/reasoning-config";
 import { jsonError } from "../utils/http";
 import { nowIso } from "../utils/time";
 

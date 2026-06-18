@@ -3,9 +3,9 @@ import type { AppEnv } from "../env";
 import {
 	getCheckinSchedulerStub,
 	shouldResetLastRun,
-} from "../services/checkin-scheduler";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
-import { convertStoredModelPricesCurrency } from "../services/pricing/repo";
+} from "../domains/checkin/scheduler";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
+import { convertStoredModelPricesCurrency } from "../domains/pricing/repo";
 import {
 	getChannelRefreshEnabled,
 	getChannelRefreshScheduleTime,
@@ -29,7 +29,7 @@ import {
 	setProxyRuntimeSettings,
 	setRetentionDays,
 	setSessionTtlHours,
-} from "../services/settings";
+} from "../domains/settings";
 import { sha256Hex } from "../utils/crypto";
 import { jsonError } from "../utils/http";
 

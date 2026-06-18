@@ -3,7 +3,7 @@ import {
 	extractJsonErrorPayload,
 	hasMeaningfulErrorField,
 } from "../proxy-error-parser";
-import { processUsageEvent, type UsageEvent } from "../usage-events";
+import { processUsageEvent, type UsageEvent } from "../../domains/usage/events";
 import { safeJsonParse } from "../../utils/json";
 import { StreamUsageParseError } from "../../utils/usage";
 import type { AppEnv } from "../../env";

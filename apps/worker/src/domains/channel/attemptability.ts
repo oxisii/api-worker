@@ -4,7 +4,7 @@ import {
 	type ChannelMetadata,
 	type ProviderType,
 } from "./metadata";
-import { deriveCanonicalModel } from "../../services/model-normalization";
+import { deriveCanonicalModel } from "../model/normalization";
 import { resolveUpstreamModelForChannel } from "./routing";
 import type { ChannelRecord } from "./types";
 import type { CallTokenItem } from "../../services/call-token-selector";

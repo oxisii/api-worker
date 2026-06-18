@@ -9,8 +9,8 @@ import type {
 	NormalizedImageRequest,
 	UpstreamRequest,
 } from "../provider-transform";
-import type { ModelReasoningConfig } from "../model-reasoning-config";
-import type { EndpointOverrides } from "../site-metadata";
+import type { ModelReasoningConfig } from "../../domains/model/reasoning-config";
+import type { EndpointOverrides } from "../../domains/site/metadata";
 import { rewriteModelInRawJsonRequest } from "./request-body";
 import type { AttemptRequestBuildPlan } from "./request-build-plan";
 

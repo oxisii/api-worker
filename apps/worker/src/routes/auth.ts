@@ -5,7 +5,7 @@ import {
 	getAdminPasswordHash,
 	getSessionTtlHours,
 	setAdminPasswordHash,
-} from "../services/settings";
+} from "../domains/settings";
 import { generateToken, sha256Hex } from "../utils/crypto";
 import { jsonError } from "../utils/http";
 import { addHours, nowIso } from "../utils/time";

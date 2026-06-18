@@ -47,18 +47,18 @@ import {
 	readHotJson,
 	writeHotJson,
 } from "../../../worker/src/services/hot-kv";
-import { shouldCooldown } from "../../../worker/src/services/model-cooldown";
+import { shouldCooldown } from "../../../worker/src/domains/model/cooldown";
 import {
 	listAliasesForCanonicalModel,
 	resolveCanonicalModel,
-} from "../../../worker/src/services/model-normalization";
-import { resolveModelReasoningConfig } from "../../../worker/src/services/model-reasoning-config";
+} from "../../../worker/src/domains/model/normalization";
+import { resolveModelReasoningConfig } from "../../../worker/src/domains/model/reasoning-config";
 import {
 	buildProxyErrorCodeSet,
 	resolveProxyErrorDecision,
 	type ProxyErrorAction,
 } from "../../../worker/src/services/proxy-error-policy";
-import { listOpenAiModelsForChannels } from "../../../worker/src/services/openai-model-list";
+import { listOpenAiModelsForChannels } from "../../../worker/src/domains/model/openai-list";
 import {
 	extractErrorDetails,
 	extractJsonErrorPayload,
@@ -73,7 +73,7 @@ import {
 } from "../../../worker/src/services/proxy/attempt-evaluator";
 import { prepareAttemptRequest } from "../../../worker/src/services/proxy/attempt-request-builder";
 import { runProxyAttempts } from "../../../worker/src/services/proxy/attempt-runner";
-import type { RequestEntryFormat } from "../../../worker/src/services/site-metadata";
+import type { RequestEntryFormat } from "../../../worker/src/domains/site/metadata";
 import {
 	type AttemptBindingPolicy,
 	type AttemptBindingState,
@@ -174,11 +174,11 @@ import {
 	normalizeProviderEmbeddingRequest,
 	normalizeProviderImageRequest,
 } from "../../../worker/src/services/providers/normalize";
-import { getProxyRuntimeSettings } from "../../../worker/src/services/settings";
+import { getProxyRuntimeSettings } from "../../../worker/src/domains/settings";
 import {
 	processUsageEvent,
 	type UsageEvent,
-} from "../../../worker/src/services/usage-events";
+} from "../../../worker/src/domains/usage/events";
 import { jsonError } from "../../../worker/src/utils/http";
 import { safeJsonParse } from "../../../worker/src/utils/json";
 import { extractReasoningEffort } from "../../../worker/src/utils/reasoning";
@@ -1653,7 +1653,7 @@ proxy.all("/*", tokenAuth, async (c) => {
 			channel: ChannelRecord;
 			path?: string | null;
 			format?:
-				| import("../../../worker/src/services/site-metadata").RequestEntryFormat
+				| import("../../../worker/src/domains/site/metadata").RequestEntryFormat
 				| null;
 		}) => {
 			scheduleDbWrite(

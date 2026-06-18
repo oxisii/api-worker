@@ -3,7 +3,7 @@ import { safeJsonParse } from "../../utils/json";
 import type { ChannelRow } from "./types";
 import { extractModelIds, type ModelEntry } from "./models";
 import { listVerifiedModelsByChannel } from "./model-capabilities";
-import { deriveCanonicalModel } from "../../services/model-normalization";
+import { deriveCanonicalModel } from "../model/normalization";
 
 type ManualModelConfig = {
 	include: string[];

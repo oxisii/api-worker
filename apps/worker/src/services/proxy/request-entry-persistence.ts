@@ -1,5 +1,5 @@
 import type { D1Database, KVNamespace } from "@cloudflare/workers-types";
-import type { RequestEntryFormat } from "../site-metadata";
+import type { RequestEntryFormat } from "../../domains/site/metadata";
 
 type ChannelForRequestEntryPersistence = {
 	id: string;

@@ -7,7 +7,7 @@ import {
 	parseDownstreamModelViaWasm,
 	parseDownstreamStreamViaWasm,
 } from "../wasm/core";
-import type { EndpointOverrides } from "./site-metadata";
+import type { EndpointOverrides } from "../domains/site/metadata";
 
 export type ProviderType = "openai" | "anthropic" | "gemini";
 

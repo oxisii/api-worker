@@ -4,7 +4,7 @@ import type {
 	NormalizedImageRequest,
 	UpstreamRequest,
 } from "../provider-transform";
-import type { EndpointOverrides } from "../site-metadata";
+import type { EndpointOverrides } from "../../domains/site/metadata";
 
 export type ModelDiscoveryResult = {
 	ok: boolean;

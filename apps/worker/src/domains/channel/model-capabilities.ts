@@ -5,7 +5,7 @@ import { extractModelIds } from "./models";
 import {
 	deriveCanonicalModel,
 	toCanonicalModelSet,
-} from "../../services/model-normalization";
+} from "../model/normalization";
 
 export type CapabilityRow = {
 	channel_id: string;

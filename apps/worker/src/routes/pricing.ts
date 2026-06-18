@@ -1,21 +1,21 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
 import { extractModels } from "../domains/channel/models";
 import { listChannels } from "../domains/channel/repo";
-import { fetchUsdCnyRate } from "../services/pricing/exchange-rate";
-import { planOrphanManualPrices } from "../services/pricing/maintenance";
+import { fetchUsdCnyRate } from "../domains/pricing/exchange-rate";
+import { planOrphanManualPrices } from "../domains/pricing/maintenance";
 import {
 	deleteModelPrice,
 	deleteBuiltinModelPrices,
 	listModelPrices,
 	overrideSyncedModelPriceAsManual,
 	upsertModelPrice,
-} from "../services/pricing/repo";
-import { getPricingSettings, setPricingSettings } from "../services/settings";
-import { PRICING_SOURCE_URLS, syncModelPrices } from "../services/pricing/sync";
-import { deriveCanonicalModel } from "../services/model-normalization";
-import type { ModelPriceSource } from "../services/pricing/types";
+} from "../domains/pricing/repo";
+import { getPricingSettings, setPricingSettings } from "../domains/settings";
+import { PRICING_SOURCE_URLS, syncModelPrices } from "../domains/pricing/sync";
+import { deriveCanonicalModel } from "../domains/model/normalization";
+import type { ModelPriceSource } from "../domains/pricing/types";
 import { jsonError } from "../utils/http";
 
 const pricing = new Hono<AppEnv>();

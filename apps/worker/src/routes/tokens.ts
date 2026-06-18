@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
 import { generateToken, sha256Hex } from "../utils/crypto";
 import { jsonError } from "../utils/http";
 import { safeJsonParse } from "../utils/json";

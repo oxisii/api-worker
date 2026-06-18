@@ -28,7 +28,7 @@ import {
 	buildSiteMetadata,
 	parseSiteMetadata,
 	type RequestEntryFormat,
-} from "../services/site-metadata";
+} from "../domains/site/metadata";
 import {
 	recoverDisabledChannelsViaWorker,
 	refreshActiveChannelsViaWorker,
@@ -38,8 +38,8 @@ import {
 	runCheckinSingleViaWorker,
 	verifyChannelById,
 	verifySitesByIds,
-} from "../services/site-task-dispatcher";
-import { triggerBackupAfterDataChange } from "../services/backup-auto-sync";
+} from "../domains/site/task-dispatcher";
+import { triggerBackupAfterDataChange } from "../domains/backup/auto-sync";
 import { generateToken } from "../utils/crypto";
 import { jsonError } from "../utils/http";
 import { nowIso } from "../utils/time";
@@ -49,12 +49,12 @@ import {
 	parseSiteVerificationSummary,
 	type SiteVerificationBatchResult,
 	type SiteVerificationResult,
-} from "../services/site-verification";
+} from "../domains/site/verification";
 import {
 	normalizeCallTokens,
 	type NormalizedSiteCallToken,
 	type SiteCallTokenInput,
-} from "../services/site-call-token-order";
+} from "../domains/site/call-token-order";
 import {
 	listSiteTaskReports,
 	saveSiteTaskReport,
@@ -62,8 +62,8 @@ import {
 	type SiteTaskKind,
 	type SiteTaskProgress,
 	type SiteTaskReportState,
-} from "../services/site-task-report-store";
-import { getProxyRuntimeSettings } from "../services/settings";
+} from "../domains/site/task-report-store";
+import { getProxyRuntimeSettings } from "../domains/settings";
 
 const sites = new Hono<AppEnv>();
 

@@ -6,7 +6,10 @@ import {
 	type SiteType,
 } from "../../../shared-core/src";
 import type { EndpointType, ProviderType } from "./provider-transform";
-import type { RequestEntry, RequestEntryFormat } from "./site-metadata";
+import type {
+	RequestEntry,
+	RequestEntryFormat,
+} from "../domains/site/metadata";
 
 export function resolveEndpointTypeForRequestEntryFormat(
 	format: RequestEntryFormat | null,

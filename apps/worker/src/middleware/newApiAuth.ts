@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AppEnv } from "../env";
-import { getAdminPasswordHash } from "../services/settings";
+import { getAdminPasswordHash } from "../domains/settings";
 import { sha256Hex } from "../utils/crypto";
 import { getBearerToken } from "../utils/request";
 

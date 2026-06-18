@@ -4,7 +4,7 @@ import { nowIso } from "../../utils/time";
 import { upsertChannelModelCapabilities } from "./model-capabilities";
 import { modelsToJson } from "./models";
 import type { ModelDiscoveryResult } from "../../services/providers";
-import type { SiteType } from "../../services/site-metadata";
+import type { SiteType } from "../../domains/site/metadata";
 import { discoverUpstreamModels } from "../../services/upstreams";
 
 export type ChannelTestResult = ModelDiscoveryResult;

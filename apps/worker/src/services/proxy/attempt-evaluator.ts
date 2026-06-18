@@ -6,7 +6,7 @@ import {
 } from "../provider-transform";
 import type { CallTokenSelection } from "../../domains/channel/attemptability";
 import type { ChannelRecord } from "../../domains/channel/types";
-import type { RequestEntryFormat } from "../site-metadata";
+import type { RequestEntryFormat } from "../../domains/site/metadata";
 import type { NormalizedUsage, StreamUsage } from "../../utils/usage";
 import {
 	formatUsageErrorMessage,
