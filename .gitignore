@@ -6,6 +6,8 @@
 !.env.agent.example
 !.env.example
 **/.wrangler
+**/.wrangler-build
+**/.tmp-wasm-web
 **/target
 **/tests
 !tests/
