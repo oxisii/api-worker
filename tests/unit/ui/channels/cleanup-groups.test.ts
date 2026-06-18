@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildRecoveryCleanupGroups,
 	type RecoveryCleanupGroup,
-} from "../../../../apps/ui/src/core/sites";
+} from "../../../../apps/ui/src/features/channels/cleanup-groups";
 import type { SiteVerificationResult } from "../../../../apps/ui/src/core/types";
 
 const channelsViewSource = readFileSync(

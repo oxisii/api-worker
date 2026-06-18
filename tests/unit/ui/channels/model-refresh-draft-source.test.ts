@@ -6,11 +6,20 @@ const channelsViewSource = readFileSync(
 	"apps/ui/src/features/channels/ChannelsView.tsx",
 	"utf8",
 );
+const channelModelsPanelSource = readFileSync(
+	"apps/ui/src/features/channels/ChannelModelsPanel.tsx",
+	"utf8",
+);
 
 describe("site model refresh draft source contracts", () => {
 	it("编辑弹窗里的拉取模型会走当前草稿配置", () => {
-		expect(channelsViewSource).toContain("onRefreshDraftSite(activeModelSite.id)");
-		expect(channelsViewSource).not.toContain("onRefreshSite(activeModelSite)");
+		expect(channelsViewSource).toContain("<ChannelModelsPanel");
+		expect(channelModelsPanelSource).toContain(
+			"onRefreshDraftSite(activeModelSite.id)",
+		);
+		expect(channelModelsPanelSource).not.toContain(
+			"onRefreshSite(activeModelSite)",
+		);
 	});
 
 	it("草稿拉取会调用站点预览刷新接口", () => {

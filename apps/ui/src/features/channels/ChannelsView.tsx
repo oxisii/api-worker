@@ -16,13 +16,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 	Input,
-	Pagination,
 	SingleSelect,
 	Switch,
-	Tooltip,
 } from "../../components/ui";
 import {
-	buildRecoveryCleanupGroups,
 	getSiteCheckinLabel,
 	getSiteCoolingMaxRemainingSeconds,
 	getSiteCoolingModelCount,
@@ -32,9 +29,6 @@ import {
 	getRefreshFailureDetails,
 	getRefreshSuccessfulTokenLabels,
 	getRequestEntryFormatLabel,
-	getVerificationAttemptStatusLabel,
-	getVerificationAttemptSummary,
-	getVerificationAttempts,
 	formatSiteRequestEntrySummary,
 	getSuggestedActionLabel,
 	getSiteTypeLabel,
@@ -42,10 +36,13 @@ import {
 	getVerificationSeverityLabel,
 	getVerificationSeverityRank,
 	getVerificationVerdictLabel,
-	type RecoveryCleanupGroup,
 	type SiteSortKey,
 	type SiteSortState,
 } from "../../core/sites";
+import {
+	buildRecoveryCleanupGroups,
+	type RecoveryCleanupGroup,
+} from "./cleanup-groups";
 import type {
 	ModelChannel,
 	ModelItem,
@@ -59,19 +56,47 @@ import type {
 	SiteVerificationResult,
 } from "../../core/types";
 import {
-	buildPageItems,
-	formatChinaDateTimeMinute,
 	getBeijingDateString,
 	loadColumnPrefs,
 	persistColumnPrefs,
 } from "../../core/utils";
 import {
-	getChannelModelRows,
-	getPagedChannelModelRows,
-	type ChannelModelRow,
-	type ChannelModelStatusFilter,
-} from "./model-rows";
+	type ActiveCallTokenDrag,
+	callTokenDropSettleMs,
+	callTokenFlipDurationMs,
+	type CallTokenOverlayVisual,
+	ensureCallTokenClientIds,
+	getCallTokenDragKey,
+	haveSameCallTokenSequence,
+	logCallTokenDrag,
+	normalizeCallTokenOrder,
+	reorderCallTokens,
+} from "./call-token-dnd";
+import { ChannelModelsPanel } from "./ChannelModelsPanel";
+import {
+	requiredSiteColumns,
+	siteColumnDefaults,
+	siteColumnOptions,
+	siteColumnVersion,
+	siteStatusOptions,
+	siteTaskButtons,
+	siteTypeOptions,
+	sortableColumns,
+} from "./constants";
+import {
+	formatCooldownDuration,
+	formatTaskDateTime,
+	formatTaskTime,
+	getCoolingModels,
+	getCoolingSummaryLabel,
+	getCoolingToneClass,
+	getRefreshStatusLabel,
+	splitRefreshFailureMessage,
+} from "./display";
+import type { ChannelModelStatusFilter } from "./model-rows";
 import { getRequestEntryFormatOptions } from "./request-entry-formats";
+import { SitesTable } from "./SitesTable";
+import { VerificationAttemptDetails } from "./VerificationAttemptDetails";
 
 type ChannelsViewProps = {
 	models: ModelItem[];
@@ -113,358 +138,6 @@ type ChannelsViewProps = {
 		model: string,
 		status: ModelStatusUpdate,
 	) => void;
-};
-
-const siteTypeOptions = [
-	{ value: "new-api", label: getSiteTypeLabel("new-api") },
-	{ value: "done-hub", label: getSiteTypeLabel("done-hub") },
-	{ value: "subapi", label: getSiteTypeLabel("subapi") },
-	{ value: "openai", label: getSiteTypeLabel("openai") },
-	{ value: "anthropic", label: getSiteTypeLabel("anthropic") },
-	{ value: "gemini", label: getSiteTypeLabel("gemini") },
-];
-const siteStatusOptions = [
-	{ value: "active", label: getSiteStatusLabel("active") },
-	{ value: "disabled", label: getSiteStatusLabel("disabled") },
-];
-const modelStatusOptions = [
-	{ value: "manual", label: "手动" },
-	{ value: "excluded", label: "排除" },
-];
-const modelFilterOptions = [
-	{ value: "all", label: "全部" },
-	{ value: "auto", label: "自动" },
-	{ value: "manual", label: "手动" },
-	{ value: "excluded", label: "已排除" },
-];
-const channelModelPageSize = 8;
-const sortableColumns: Array<{ key: SiteSortKey; label: string }> = [
-	{ key: "name", label: "站点" },
-	{ key: "type", label: "类型" },
-	{ key: "status", label: "状态" },
-	{ key: "weight", label: "权重" },
-	{ key: "tokens", label: "令牌" },
-	{ key: "cooldowns", label: "冷却模型" },
-	{ key: "checkin_enabled", label: "自动签到" },
-	{ key: "checkin", label: "今日签到" },
-];
-const siteColumnOptions = [
-	{ id: "name", label: "站点", width: "minmax(0,1.4fr)", locked: true },
-	{ id: "type", label: "类型", width: "minmax(0,0.6fr)" },
-	{ id: "status", label: "状态", width: "minmax(0,0.6fr)", locked: true },
-	{ id: "weight", label: "权重", width: "minmax(0,0.5fr)", locked: true },
-	{ id: "tokens", label: "令牌", width: "minmax(0,0.6fr)", locked: true },
-	{
-		id: "cooldowns",
-		label: "冷却模型",
-		width: "minmax(0,0.9fr)",
-		locked: true,
-	},
-	{
-		id: "checkin_enabled",
-		label: "自动签到",
-		width: "minmax(0,0.6fr)",
-		locked: true,
-	},
-	{ id: "checkin", label: "今日签到", width: "minmax(0,0.8fr)", locked: true },
-	{ id: "actions", label: "操作", width: "minmax(0,1.4fr)", locked: true },
-];
-const siteColumnDefaults = siteColumnOptions.map((column) => column.id);
-const requiredSiteColumns = [
-	"name",
-	"status",
-	"weight",
-	"tokens",
-	"cooldowns",
-	"checkin_enabled",
-	"checkin",
-	"actions",
-];
-const siteColumnVersion = "2026-04-20";
-const columnTooltips: Partial<Record<SiteSortKey, string>> = {
-	cooldowns: "按冷却模型数量排序；数量相同则按最长剩余冷却时间排序。",
-	checkin_enabled: "仅支持签到的上游才会显示并执行自动签到。",
-	checkin: "展示今天的签到结果。",
-};
-
-const siteTaskButtons: Array<{
-	kind: SiteTaskKind;
-	label: string;
-	pendingLabel: string;
-}> = [
-	{
-		kind: "checkin",
-		label: "签到已启用站点",
-		pendingLabel: "签到中...",
-	},
-	{
-		kind: "verify-active",
-		label: "检查启用渠道",
-		pendingLabel: "检查中...",
-	},
-	{
-		kind: "verify-disabled",
-		label: "检查停用渠道",
-		pendingLabel: "检查中...",
-	},
-	{
-		kind: "refresh-active",
-		label: "更新启用渠道",
-		pendingLabel: "更新中...",
-	},
-];
-
-const formatTaskTime = (value: string) =>
-	new Date(value).toLocaleTimeString("zh-CN", {
-		hour: "2-digit",
-		minute: "2-digit",
-		hour12: false,
-	});
-
-const formatTaskDateTime = (value: string) => formatChinaDateTimeMinute(value);
-
-const formatCooldownDuration = (seconds: number) => {
-	const safeSeconds = Math.max(0, Math.floor(seconds));
-	if (safeSeconds <= 0) {
-		return "即将恢复";
-	}
-	const days = Math.floor(safeSeconds / 86400);
-	const hours = Math.floor((safeSeconds % 86400) / 3600);
-	const minutes = Math.floor((safeSeconds % 3600) / 60);
-	if (days > 0) {
-		return `${days}天 ${hours}小时`;
-	}
-	if (hours > 0) {
-		return `${hours}小时 ${minutes}分钟`;
-	}
-	return `${Math.max(1, minutes)}分钟`;
-};
-
-const getCoolingModels = (site: Site) => site.cooling_models ?? [];
-
-const getCoolingSummaryLabel = (site: Site) => {
-	const count = getSiteCoolingModelCount(site);
-	if (count <= 0) {
-		return "无";
-	}
-	return `${count} 个`;
-};
-
-const splitRefreshFailureMessage = (message: string) => {
-	const normalized = String(message ?? "").trim();
-	if (!normalized) {
-		return {
-			summary: "更新失败",
-			detail: null,
-		};
-	}
-	const prefix = "更新失败：";
-	if (normalized.startsWith(prefix)) {
-		return {
-			summary: "更新失败",
-			detail: normalized.slice(prefix.length).trim() || null,
-		};
-	}
-	return {
-		summary: normalized,
-		detail: null,
-	};
-};
-
-const renderVerificationAttemptDetails = (item: SiteVerificationResult) => {
-	const summary = getVerificationAttemptSummary(item);
-	const attempts = getVerificationAttempts(item);
-	return (
-		<div class="space-y-2 rounded-lg bg-slate-50/80 px-2.5 py-2">
-			<p class="text-[11px] font-semibold leading-5 text-[color:var(--app-ink-muted)]">
-				尝试记录
-			</p>
-			<p class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]">
-				模型：{summary.models.length > 0 ? summary.models.join("、") : "-"}
-			</p>
-			<p class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]">
-				格式：{summary.formats.length > 0 ? summary.formats.join("、") : "-"}
-			</p>
-			{attempts.length > 0 ? (
-				<div class="max-h-36 space-y-1 overflow-y-auto pr-1">
-					{attempts.map((attempt, index) => (
-						<p
-							class="break-words text-[11px] leading-5 text-[color:var(--app-ink-muted)]"
-							key={`${item.site_id}:attempt:${index}`}
-						>
-							第 {index + 1} 次 ·
-							{getVerificationAttemptStatusLabel(attempt.status)} ·
-							{attempt.request_entry_format
-								? getRequestEntryFormatLabel(attempt.request_entry_format)
-								: attempt.endpoint_type}{" "}
-							· HTTP {attempt.http_status ?? "-"} ·{attempt.model ?? "-"}
-							{attempt.request_model && attempt.request_model !== attempt.model
-								? ` -> ${attempt.request_model}`
-								: ""}
-							{attempt.detail_code ? ` · ${attempt.detail_code}` : ""}
-							{attempt.detail_message ? ` · ${attempt.detail_message}` : ""}
-						</p>
-					))}
-				</div>
-			) : null}
-		</div>
-	);
-};
-
-const getRefreshStatusLabel = (status: SiteChannelRefreshItem["status"]) => {
-	if (status === "failed") {
-		return "失败";
-	}
-	if (status === "warning") {
-		return "部分成功";
-	}
-	return "完成";
-};
-
-const getCoolingToneClass = (site: Site) => {
-	const count = getSiteCoolingModelCount(site);
-	if (count <= 0) {
-		return "border-white/70 bg-white/70 text-[color:var(--app-ink-muted)]";
-	}
-	if (count >= 3) {
-		return "border-amber-300/70 bg-amber-50 text-amber-700";
-	}
-	return "border-sky-300/70 bg-sky-50 text-sky-700";
-};
-
-const normalizeCallTokenOrder = (tokens: SiteForm["call_tokens"]) =>
-	tokens.map((token, index) => ({
-		...token,
-		priority: index,
-	}));
-
-const createDraftCallTokenId = () => {
-	callTokenDraftKeySeed += 1;
-	return `draft-call-token-${callTokenDraftKeySeed}`;
-};
-
-const ensureCallTokenClientIds = (
-	tokens: SiteForm["call_tokens"] | null | undefined,
-	previousTokens: SiteForm["call_tokens"] = [],
-) =>
-	(tokens ?? []).map((token, index) => {
-		const persistedId = String(token.id ?? "").trim();
-		if (persistedId) {
-			return {
-				...token,
-				id: persistedId,
-			};
-		}
-		const previousId = String(previousTokens[index]?.id ?? "").trim();
-		if (previousId) {
-			return {
-				...token,
-				id: previousId,
-			};
-		}
-		return {
-			...token,
-			id: createDraftCallTokenId(),
-		};
-	});
-
-const getCallTokenDragKey = (
-	token: SiteForm["call_tokens"][number],
-	fallbackIndex: number,
-) => {
-	if (token.id) {
-		return token.id;
-	}
-	const existingKey = callTokenDraftKeyMap.get(token);
-	if (existingKey) {
-		return existingKey;
-	}
-	const nextKey = `draft-${fallbackIndex}-${callTokenDraftKeySeed + 1}`;
-	callTokenDraftKeySeed += 1;
-	callTokenDraftKeyMap.set(token, nextKey);
-	return nextKey;
-};
-
-const reorderCallTokens = (
-	tokens: SiteForm["call_tokens"],
-	fromIndex: number,
-	toIndex: number,
-) => {
-	if (
-		fromIndex === toIndex ||
-		fromIndex < 0 ||
-		toIndex < 0 ||
-		fromIndex >= tokens.length ||
-		toIndex >= tokens.length
-	) {
-		return tokens;
-	}
-	const next = [...tokens];
-	const [movedToken] = next.splice(fromIndex, 1);
-	next.splice(toIndex, 0, movedToken);
-	return next;
-};
-
-const haveSameCallTokenSequence = (
-	left: SiteForm["call_tokens"],
-	right: SiteForm["call_tokens"],
-) => {
-	if (left.length !== right.length) {
-		return false;
-	}
-	for (let index = 0; index < left.length; index += 1) {
-		const leftKey = getCallTokenDragKey(left[index], index);
-		const rightKey = getCallTokenDragKey(right[index], index);
-		if (leftKey !== rightKey) {
-			return false;
-		}
-	}
-	return true;
-};
-
-const logCallTokenDrag = (
-	stage: string,
-	detail: Record<string, unknown> = {},
-) => {
-	if (typeof window === "undefined") {
-		return;
-	}
-	const enabled =
-		import.meta.env.DEV ||
-		window.localStorage.getItem("debug:site-call-token-drag") === "1";
-	if (!enabled) {
-		return;
-	}
-	console.debug("[sites:call-token-drag]", stage, detail);
-};
-
-const callTokenFlipDurationMs = 220;
-const callTokenDropSettleMs = 180;
-const callTokenDraftKeyMap = new WeakMap<
-	SiteForm["call_tokens"][number],
-	string
->();
-let callTokenDraftKeySeed = 0;
-
-type ActiveCallTokenDrag = {
-	currentIndex: number;
-	grabOffsetX: number;
-	grabOffsetY: number;
-	height: number;
-	isSettling: boolean;
-	left: number;
-	pointerId: number;
-	tokenKey: string;
-	top: number;
-	width: number;
-};
-
-type CallTokenOverlayVisual = {
-	frameId: number | null;
-	scale: number;
-	transition: string;
-	x: number;
-	y: number;
 };
 
 export const ChannelsView = ({
@@ -1493,280 +1166,6 @@ export const ChannelsView = ({
 						getCallTokenDragKey(token, index) === activeCallTokenDrag.tokenKey,
 				) ?? null);
 	const activeModelSite = editingSite ?? null;
-	const modelRows = getChannelModelRows(
-		models,
-		activeModelSite?.id,
-		activeModelSite ? (siteModelPreviewBySiteId[activeModelSite.id] ?? []) : [],
-	);
-	const modelRowsByStatus = {
-		auto: modelRows.filter((item) => item.status === "auto"),
-		manual: modelRows.filter((item) => item.status === "manual"),
-		excluded: modelRows.filter((item) => item.status === "excluded"),
-	};
-	const modelPageResult = getPagedChannelModelRows(modelRows, {
-		page: modelPage,
-		pageSize: channelModelPageSize,
-		search: modelSearch,
-		status: modelStatusFilter,
-	});
-	const modelPageItems = buildPageItems(
-		modelPageResult.page,
-		modelPageResult.totalPages,
-	);
-	const hasChannelModelRows = modelRows.length > 0;
-	const getModelStatusVariant = (status: ModelChannel["status"]) => {
-		if (status === "auto") {
-			return "success" as const;
-		}
-		if (status === "manual") {
-			return "warning" as const;
-		}
-		return "danger" as const;
-	};
-	const setChannelModelStatus = (model: string, status: ModelStatusUpdate) => {
-		if (!activeModelSite) {
-			return;
-		}
-		onSetModelStatus(activeModelSite.id, model, status);
-	};
-	const submitDraftModel = () => {
-		const model = draftModelName.trim();
-		if (!model || !activeModelSite) {
-			return;
-		}
-		onSetModelStatus(activeModelSite.id, model, draftModelStatus);
-		setDraftModelName("");
-		setModelSearch("");
-		setModelStatusFilter(draftModelStatus);
-		setModelPage(1);
-	};
-	const renderModelManagementCard = () => {
-		if (!activeModelSite) {
-			return null;
-		}
-		const draftModel = draftModelName.trim();
-		const draftActionPending = draftModel
-			? isActionPending(`model:${activeModelSite.id}:${draftModel}`)
-			: false;
-		const refreshPending = isActionPending(
-			`site:refresh:${activeModelSite.id}`,
-		);
-		return (
-			<Card class="p-4">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div class="min-w-0">
-						<p class="text-xs font-semibold uppercase tracking-widest text-[color:var(--app-ink-muted)]">
-							模型管理
-						</p>
-						<p class="mt-1 truncate text-xs text-[color:var(--app-ink-muted)]">
-							{activeModelSite.name}
-						</p>
-					</div>
-					<div class="flex flex-wrap items-center gap-1.5">
-						<Chip variant="success">自动 {modelRowsByStatus.auto.length}</Chip>
-						<Chip variant="warning">
-							手动 {modelRowsByStatus.manual.length}
-						</Chip>
-						<Chip variant="danger">
-							排除 {modelRowsByStatus.excluded.length}
-						</Chip>
-						<Button
-							class="h-8 px-3 text-[11px]"
-							size="sm"
-							type="button"
-							disabled={refreshPending}
-							onClick={() => onRefreshDraftSite(activeModelSite.id)}
-						>
-							{refreshPending ? "拉取中..." : "拉取模型"}
-						</Button>
-					</div>
-				</div>
-				<div class="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_132px_auto]">
-					<Input
-						placeholder="模型 ID"
-						value={draftModelName}
-						onInput={(event) =>
-							setDraftModelName((event.currentTarget as HTMLInputElement).value)
-						}
-						onKeyDown={(event) => {
-							if (event.key !== "Enter") {
-								return;
-							}
-							event.preventDefault();
-							submitDraftModel();
-						}}
-					/>
-					<SingleSelect
-						class="w-full"
-						value={draftModelStatus}
-						options={modelStatusOptions}
-						onChange={(next) =>
-							setDraftModelStatus(next as ModelChannel["status"])
-						}
-					/>
-					<Button
-						class="h-10 px-4 text-xs"
-						size="md"
-						variant="primary"
-						type="button"
-						disabled={!draftModel || draftActionPending}
-						onClick={submitDraftModel}
-					>
-						{draftActionPending ? "添加中..." : "添加"}
-					</Button>
-				</div>
-				<div class="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_132px]">
-					<Input
-						placeholder="搜索当前渠道模型"
-						value={modelSearch}
-						onInput={(event) => {
-							setModelSearch((event.currentTarget as HTMLInputElement).value);
-							setModelPage(1);
-						}}
-					/>
-					<SingleSelect
-						class="w-full"
-						value={modelStatusFilter}
-						options={modelFilterOptions}
-						onChange={(next) => {
-							setModelStatusFilter(next as ChannelModelStatusFilter);
-							setModelPage(1);
-						}}
-					/>
-				</div>
-				{hasChannelModelRows && (
-					<div class="mt-2 text-xs text-[color:var(--app-ink-muted)]">
-						显示 {modelPageResult.rows.length} / {modelPageResult.total}{" "}
-						个匹配模型
-					</div>
-				)}
-				{hasChannelModelRows ? (
-					<div class="mt-3 overflow-hidden rounded-lg border border-white/70 bg-white/70">
-						<div class="grid grid-cols-[minmax(0,1fr)_88px_minmax(220px,auto)] items-center gap-3 border-b border-white/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-widest text-[color:var(--app-ink-muted)]">
-							<div>模型</div>
-							<div>状态</div>
-							<div class="text-right">操作</div>
-						</div>
-						{modelPageResult.rows.length === 0 ? (
-							<div class="px-3 py-6 text-center text-xs text-[color:var(--app-ink-muted)]">
-								暂无匹配模型
-							</div>
-						) : (
-							<div class="divide-y divide-white/70">
-								{modelPageResult.rows.map((row) => renderModelRow(row))}
-							</div>
-						)}
-						{modelPageResult.totalPages > 1 && (
-							<div class="flex flex-wrap items-center justify-between gap-2 border-t border-white/70 px-3 py-2 text-xs text-[color:var(--app-ink-muted)]">
-								<span>
-									第 {modelPageResult.page} / {modelPageResult.totalPages} 页
-								</span>
-								<Pagination
-									page={modelPageResult.page}
-									totalPages={modelPageResult.totalPages}
-									items={modelPageItems}
-									onPageChange={setModelPage}
-								/>
-							</div>
-						)}
-					</div>
-				) : (
-					<div class="mt-3 rounded-lg border border-dashed border-white/70 bg-white/60 px-3 py-4 text-center text-xs text-[color:var(--app-ink-muted)]">
-						暂无模型
-					</div>
-				)}
-			</Card>
-		);
-	};
-	const renderModelRow = (row: ChannelModelRow) => {
-		const { model, status } = row;
-		const actionPending = isActionPending(
-			`model:${activeModelSite?.id}:${model}`,
-		);
-		return (
-			<div
-				class="grid grid-cols-[minmax(0,1fr)_88px] gap-2 px-3 py-2 md:grid-cols-[minmax(0,1fr)_88px_minmax(220px,auto)] md:items-center md:gap-3"
-				key={`${status}:${model}`}
-			>
-				<div class="min-w-0">
-					<p class="truncate text-xs font-semibold text-[color:var(--app-ink)]">
-						{model}
-					</p>
-					{row.rawIds && row.rawIds.length > 0 && (
-						<div class="mt-1 flex flex-wrap gap-1">
-							{row.rawIds.map((rawId) => (
-								<Chip
-									key={`${model}:raw:${rawId}`}
-									class="max-w-[220px] truncate text-[10px]"
-									title={rawId}
-								>
-									{rawId}
-								</Chip>
-							))}
-						</div>
-					)}
-				</div>
-				<div>
-					<Chip variant={getModelStatusVariant(status)}>
-						{status === "auto"
-							? "自动"
-							: status === "manual"
-								? "手动"
-								: "已排除"}
-					</Chip>
-				</div>
-				<div class="col-span-2 flex flex-wrap justify-start gap-1.5 md:col-span-1 md:justify-end">
-					{status === "excluded" && (
-						<Button
-							class="h-8 px-2 text-[11px]"
-							size="sm"
-							variant="primary"
-							type="button"
-							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "manual")}
-						>
-							转手动
-						</Button>
-					)}
-					{status !== "excluded" && (
-						<Button
-							class="h-8 px-2 text-[11px]"
-							size="sm"
-							type="button"
-							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "excluded")}
-						>
-							排除
-						</Button>
-					)}
-					{status === "manual" && (
-						<Button
-							class="h-8 px-2 text-[11px]"
-							size="sm"
-							variant="ghost"
-							type="button"
-							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "auto")}
-						>
-							删除
-						</Button>
-					)}
-					{status === "excluded" && (
-						<Button
-							class="h-8 px-2 text-[11px]"
-							size="sm"
-							variant="ghost"
-							type="button"
-							disabled={actionPending}
-							onClick={() => setChannelModelStatus(model, "auto")}
-						>
-							删除
-						</Button>
-					)}
-				</div>
-			</div>
-		);
-	};
 	const renderTaskReportDialog = () => {
 		if (!activeReportTask) {
 			return null;
@@ -1893,7 +1292,7 @@ export const ChannelsView = ({
 													)}
 												</div>
 											) : null}
-											{renderVerificationAttemptDetails(item)}
+											<VerificationAttemptDetails item={item} />
 											<p class="text-[11px] text-[color:var(--app-ink-muted)]">
 												建议：{getSuggestedActionLabel(item.suggested_action)}
 											</p>
@@ -2002,7 +1401,7 @@ export const ChannelsView = ({
 													{item.message}
 												</p>
 												<div class="mt-2">
-													{renderVerificationAttemptDetails(item)}
+													<VerificationAttemptDetails item={item} />
 												</div>
 											</div>
 										</div>
@@ -2158,7 +1557,7 @@ export const ChannelsView = ({
 																	</div>
 																) : null}
 																<div class="mt-2">
-																	{renderVerificationAttemptDetails(item)}
+																	<VerificationAttemptDetails item={item} />
 																</div>
 															</div>
 															<div class="flex items-start justify-end">
@@ -2748,227 +2147,23 @@ export const ChannelsView = ({
 							})
 						)}
 					</div>
-					<div class="app-surface app-list-shell hidden overflow-hidden md:block">
-						<div
-							class="app-list-header grid gap-3 px-4 py-3 text-xs uppercase tracking-widest text-[color:var(--app-ink-muted)]"
-							style={`grid-template-columns: ${siteGridTemplate};`}
-						>
-							{sortableColumns
-								.filter((column) => visibleColumnSet.has(column.key))
-								.map((column) => {
-									const tooltip = columnTooltips[column.key];
-									return (
-										<div key={column.key}>
-											<button
-												class="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[color:var(--app-ink-muted)] hover:text-[color:var(--app-ink)]"
-												type="button"
-												onClick={() => toggleSort(column.key)}
-											>
-												{tooltip ? (
-													<Tooltip content={tooltip} class="inline-flex">
-														<span>{column.label}</span>
-													</Tooltip>
-												) : (
-													<span>{column.label}</span>
-												)}
-												<span class="text-[10px]">
-													{sortIndicator(column.key)}
-												</span>
-											</button>
-										</div>
-									);
-								})}
-							{visibleColumnSet.has("actions") && <div>操作</div>}
-						</div>
-						{visibleSites.length === 0 ? (
-							<div class="app-list-empty px-4 py-10 text-center text-sm text-[color:var(--app-ink-muted)]">
-								<p>暂无站点，请先创建。</p>
-								<Button
-									class="mt-4 h-9 px-4 text-xs"
-									size="sm"
-									variant="primary"
-									type="button"
-									onClick={onCreate}
-								>
-									新增站点
-								</Button>
-							</div>
-						) : (
-							<div class="app-list-body divide-y divide-white/60">
-								{visibleSites.map((site) => {
-									const isActive = site.status === "active";
-									const canCheckin = supportsSiteCheckin(site.site_type);
-									const checkinDisabled = !canCheckin;
-									const callTokenCount = site.call_tokens?.length ?? 0;
-									const coolingCount = getSiteCoolingModelCount(site);
-									const verifyPending = isActionPending(
-										`site:verify:${site.id}`,
-									);
-									const checkinPending = isActionPending(
-										`site:checkin:${site.id}`,
-									);
-									const togglePending = isActionPending(
-										`site:toggle:${site.id}`,
-									);
-									const deletePending = isActionPending(
-										`site:delete:${site.id}`,
-									);
-									const requestEntrySummary =
-										formatSiteRequestEntrySummary(site);
-									return (
-										<div
-											class={`app-list-row grid items-center gap-3 px-4 py-4 text-sm ${
-												editingSite?.id === site.id
-													? "bg-[rgba(10,132,255,0.08)]"
-													: ""
-											}`}
-											key={site.id}
-											style={`grid-template-columns: ${siteGridTemplate};`}
-										>
-											{visibleColumnSet.has("name") && (
-												<div class="flex min-w-0 flex-col">
-													<span class="truncate font-semibold text-[color:var(--app-ink)]">
-														{site.name}
-													</span>
-													<span
-														class="truncate text-xs text-[color:var(--app-ink-muted)]"
-														title={site.base_url}
-													>
-														{site.base_url}
-													</span>
-													{requestEntrySummary && (
-														<span class="truncate text-[11px] text-[color:var(--app-ink-muted)]">
-															请求入口：{requestEntrySummary}
-														</span>
-													)}
-													{site.verification && (
-														<span class="truncate text-[11px] text-[color:var(--app-ink-muted)]">
-															最近验证：
-															{getVerificationVerdictLabel(
-																site.verification.verdict,
-															)}
-														</span>
-													)}
-												</div>
-											)}
-											{visibleColumnSet.has("type") && (
-												<div class="text-xs font-semibold text-[color:var(--app-ink)]">
-													{getSiteTypeLabel(site.site_type)}
-												</div>
-											)}
-											{visibleColumnSet.has("status") && (
-												<div>
-													<Chip
-														variant={isActive ? "success" : "muted"}
-														class="text-xs"
-													>
-														{isActive ? "启用" : "禁用"}
-													</Chip>
-												</div>
-											)}
-											{visibleColumnSet.has("weight") && (
-												<div class="text-xs font-semibold text-[color:var(--app-ink)]">
-													{site.weight}
-												</div>
-											)}
-											{visibleColumnSet.has("tokens") && (
-												<div class="text-xs text-[color:var(--app-ink-muted)]">
-													{callTokenCount > 0 ? `${callTokenCount} 个` : "-"}
-												</div>
-											)}
-											{visibleColumnSet.has("cooldowns") && (
-												<div>
-													<button
-														class={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getCoolingToneClass(site)}`}
-														type="button"
-														disabled={coolingCount <= 0}
-														onClick={() => openCooldownDetails(site)}
-													>
-														{getCoolingSummaryLabel(site)}
-													</button>
-												</div>
-											)}
-											{visibleColumnSet.has("checkin_enabled") && (
-												<div class="text-xs text-[color:var(--app-ink-muted)]">
-													{site.site_type === "new-api"
-														? site.checkin_enabled
-															? "已开启"
-															: "已关闭"
-														: "-"}
-												</div>
-											)}
-											{visibleColumnSet.has("checkin") && (
-												<div class="text-xs text-[color:var(--app-ink-muted)]">
-													{getSiteCheckinLabel(site, today)}
-												</div>
-											)}
-											{visibleColumnSet.has("actions") && (
-												<div class="flex flex-wrap gap-2">
-													<Button
-														class="h-9 px-3 text-xs"
-														size="sm"
-														type="button"
-														disabled={verifyPending}
-														onClick={() => onVerify(site.id)}
-													>
-														{verifyPending ? "验证中..." : "验证"}
-													</Button>
-													<Button
-														class="h-9 px-3 text-xs"
-														size="sm"
-														type="button"
-														disabled={checkinPending || checkinDisabled}
-														title={
-															checkinDisabled ? "当前上游不支持签到" : undefined
-														}
-														onClick={() => {
-															if (!canCheckin) {
-																return;
-															}
-															onCheckin(site);
-														}}
-													>
-														{checkinPending ? "签到中..." : "签到"}
-													</Button>
-													<Button
-														class="h-9 px-3 text-xs"
-														size="sm"
-														type="button"
-														disabled={togglePending}
-														onClick={() => onToggle(site.id, site.status)}
-													>
-														{togglePending
-															? "处理中..."
-															: isActive
-																? "禁用"
-																: "启用"}
-													</Button>
-													<Button
-														class="h-9 px-3 text-xs"
-														size="sm"
-														type="button"
-														onClick={() => onEdit(site)}
-													>
-														编辑
-													</Button>
-													<Button
-														class="h-9 px-3 text-xs"
-														size="sm"
-														variant="ghost"
-														type="button"
-														disabled={deletePending}
-														onClick={() => onDelete(site)}
-													>
-														{deletePending ? "删除中..." : "删除"}
-													</Button>
-												</div>
-											)}
-										</div>
-									);
-								})}
-							</div>
-						)}
-					</div>
+					<SitesTable
+						editingSite={editingSite}
+						siteGridTemplate={siteGridTemplate}
+						today={today}
+						visibleColumnSet={visibleColumnSet}
+						visibleSites={visibleSites}
+						isActionPending={isActionPending}
+						onCheckin={onCheckin}
+						onCreate={onCreate}
+						onDelete={onDelete}
+						onEdit={onEdit}
+						onOpenCooldownDetails={openCooldownDetails}
+						onSort={toggleSort}
+						onToggle={onToggle}
+						onVerify={onVerify}
+						sortIndicator={sortIndicator}
+					/>
 				</div>
 			</div>
 			{renderCooldownDetailsDialog()}
@@ -3207,7 +2402,30 @@ export const ChannelsView = ({
 									</Card>
 								)}
 							</Card>
-							{isEditing && renderModelManagementCard()}
+							{isEditing && (
+								<ChannelModelsPanel
+									models={models}
+									activeModelSite={activeModelSite}
+									previewModels={
+										activeModelSite
+											? (siteModelPreviewBySiteId[activeModelSite.id] ?? [])
+											: []
+									}
+									draftModelName={draftModelName}
+									draftModelStatus={draftModelStatus}
+									modelSearch={modelSearch}
+									modelStatusFilter={modelStatusFilter}
+									modelPage={modelPage}
+									isActionPending={isActionPending}
+									onDraftModelNameChange={setDraftModelName}
+									onDraftModelStatusChange={setDraftModelStatus}
+									onModelSearchChange={setModelSearch}
+									onModelStatusFilterChange={setModelStatusFilter}
+									onModelPageChange={setModelPage}
+									onRefreshDraftSite={onRefreshDraftSite}
+									onSetModelStatus={onSetModelStatus}
+								/>
+							)}
 							{needsSystemToken && (
 								<Card class="p-4">
 									<p class="text-xs font-semibold uppercase tracking-widest text-[color:var(--app-ink-muted)]">
